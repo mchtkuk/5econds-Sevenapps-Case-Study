@@ -1,112 +1,370 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { MetadataModal } from "@/components/metadata-modal";
+import { SuccessModal } from "@/components/success-modal";
+import { VideoThumbnailScrubber } from "@/components/video-thumbnail-scrubber";
+import { useVideoCropping } from "@/hooks/use-video-cropping";
+import { useVideoStore } from "@/store/video-store";
+import { AspectRatio } from "@/types/video";
+import { formatDuration, generateThumbnail } from "@/utils/video-utils";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { VideoView, useVideoPlayer } from "expo-video";
+import React, { useEffect, useState } from "react";
 import {
-  View,
-  StyleSheet,
-  TouchableOpacity,
-  Text,
-  SafeAreaView,
-  ScrollView,
+  ActivityIndicator,
   Alert,
-  TextInput,
-  Modal,
-} from 'react-native';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useVideoStore } from '@/store/videoStore';
-import { formatDuration } from '@/utils/videoUtils';
-import Slider from '@react-native-community/slider';
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 export default function EditorScreen() {
   const router = useRouter();
-  const videoRef = useRef<Video>(null);
-  const { selectedVideo, currentProject, createProject, addTextOverlay, addFilter } = useVideoStore();
+  const { selectedVideo, addCroppedVideo } = useVideoStore();
+  const insets = useSafeAreaInsets();
+
+  // Initialize video player
+  const player = useVideoPlayer(selectedVideo?.uri || "", (player) => {
+    player.loop = true; // Loop the video for preview
+    player.muted = false; // Enable sound
+    player.volume = 1.0; // Full volume
+  });
+
+  // Initialize modal preview player
+  const modalPlayer = useVideoPlayer(selectedVideo?.uri || "", (player) => {
+    player.loop = true;
+    player.muted = false;
+    player.volume = 1.0;
+  });
+
+  // Initialize video cropping hook
+  const { mutate: cropVideo, isPending: isCropping } = useVideoCropping();
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const [trimStart, setTrimStart] = useState(0);
-  const [trimEnd, setTrimEnd] = useState(0);
+  const [trimEnd, setTrimEnd] = useState(5000); // Fixed 5 seconds
+  const [isPreviewMode, setIsPreviewMode] = useState(false); // Toggle between cropped/uncropped mode
+
+  const CROP_DURATION = 5000; // Fixed 5 seconds in milliseconds
+
+  // Animation for toggle switch
+  const togglePosition = useSharedValue(1); // Start on Crop (right side)
+  const scrubberHeight = useSharedValue(1); // Start visible (in crop mode)
+
+  useEffect(() => {
+    // When isPreviewMode is true, indicator is on "Preview" (left side, position 0)
+    // When isPreviewMode is false, indicator is on "Crop" (right side, position 1)
+    togglePosition.value = withTiming(isPreviewMode ? 0 : 1, { duration: 200 });
+
+    // Animate scrubber in/out
+    scrubberHeight.value = withTiming(isPreviewMode ? 0 : 1, { duration: 300 });
+  }, [isPreviewMode]);
+
+  const animatedIndicatorStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateX: togglePosition.value * 68 }], // Half of 140px width minus padding
+    };
+  });
+
+  const animatedScrubberStyle = useAnimatedStyle(() => {
+    return {
+      height: scrubberHeight.value * 150, // Approximate height of scrubber with padding
+      opacity: scrubberHeight.value,
+      overflow: "hidden",
+    };
+  });
 
   // Modal states
-  const [showTextModal, setShowTextModal] = useState(false);
-  const [showFilterModal, setShowFilterModal] = useState(false);
-  const [textInput, setTextInput] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState<string>('');
+  const [showMetadataModal, setShowMetadataModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [videoName, setVideoName] = useState("");
+  const [videoDescription, setVideoDescription] = useState("");
+  const [selectedAspectRatio, setSelectedAspectRatio] =
+    useState<AspectRatio>("original");
+  const [showScrubber, setShowScrubber] = useState(true); // Control scrubber visibility for cleanup
+
+  // Get dynamic aspect ratios based on video
+  const getAspectRatios = (): { value: AspectRatio; label: string; icon: string }[] => {
+    // Check if video is already 9:16
+    const width = selectedVideo?.width || 0;
+    const height = selectedVideo?.height || 0;
+    const ratio = width / height;
+    const is9by16 = Math.abs(ratio - 9 / 16) < 0.1; // Tolerance of 0.1
+
+    const videoRatio = getVideoAspectRatioString();
+    const originalLabel = videoRatio ? `Original ${videoRatio}` : "Original";
+
+    // If already 9:16, only show Original
+    if (is9by16) {
+      return [
+        {
+          value: "original",
+          label: originalLabel,
+          icon: "resize"
+        }
+      ];
+    }
+
+    // If NOT 9:16, show Original + 9:16 option
+    return [
+      {
+        value: "original",
+        label: originalLabel,
+        icon: "resize"
+      },
+      {
+        value: "9:16",
+        label: "9:16",
+        icon: "phone-portrait"
+      },
+    ];
+  };
+
+  // Always use "original" as default - removed auto-detection
+
+  // Get actual video aspect ratio as string (e.g., "16:9")
+  const getVideoAspectRatioString = (): string => {
+    if (!selectedVideo?.width || !selectedVideo?.height) return "";
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+    const divisor = gcd(selectedVideo.width, selectedVideo.height);
+    const w = selectedVideo.width / divisor;
+    const h = selectedVideo.height / divisor;
+    return `${w}:${h}`;
+  };
+
 
   useEffect(() => {
     if (!selectedVideo) {
-      router.back();
+      router.push("/(tabs)");
       return;
     }
 
-    if (!currentProject) {
-      createProject(`Project_${Date.now()}`);
-    }
+    // Always default to "original" (video's native aspect ratio)
+    setSelectedAspectRatio("original");
+
+    // Cleanup players when component unmounts
+    return () => {
+      try {
+        if (player) {
+          player.pause();
+        }
+      } catch (error) {
+        // Ignore - player may already be destroyed
+      }
+      try {
+        if (modalPlayer) {
+          modalPlayer.pause();
+        }
+      } catch (error) {
+        // Ignore - player may already be destroyed
+      }
+    };
   }, [selectedVideo]);
 
+  // Update duration and playback state from player
   useEffect(() => {
-    if (duration > 0 && trimEnd === 0) {
-      setTrimEnd(duration);
+    if (!player) return;
+
+    const interval = setInterval(() => {
+      const currentTimeMs = player.currentTime * 1000;
+      const durationMs = player.duration * 1000;
+
+      setCurrentTime(currentTimeMs);
+      setDuration(durationMs);
+      setIsPlaying(player.playing);
+
+      // Auto loop within trim range (only in edit mode, not preview mode)
+      if (!isPreviewMode && trimEnd > 0 && currentTimeMs >= trimEnd) {
+        player.currentTime = trimStart / 1000;
+        // Keep playing (loop the 5-second segment)
+      }
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [player, trimEnd, trimStart, isPreviewMode]);
+
+  useEffect(() => {
+    if (duration > 0) {
+      // Ensure trimEnd is always 5 seconds from trimStart
+      const maxEnd = Math.min(trimStart + CROP_DURATION, duration);
+      setTrimEnd(maxEnd);
     }
-  }, [duration]);
+  }, [duration, trimStart]);
 
-  const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
-    if (status.isLoaded) {
-      setCurrentTime(status.positionMillis);
-      setDuration(status.durationMillis || 0);
-      setIsPlaying(status.isPlaying);
+  // Seek player to trimStart whenever it changes (when user scrubs)
+  useEffect(() => {
+    if (player && trimStart >= 0 && !isPreviewMode) {
+      player.currentTime = trimStart / 1000; // Convert ms to seconds
+    }
+  }, [player, trimStart, isPreviewMode]);
 
-      // Auto pause at trim end
-      if (trimEnd > 0 && status.positionMillis >= trimEnd) {
-        videoRef.current?.pauseAsync();
-        videoRef.current?.setPositionAsync(trimStart);
+  // Reset to start when toggling preview mode
+  useEffect(() => {
+    if (player) {
+      if (isPreviewMode) {
+        // Preview mode: start from beginning
+        player.currentTime = 0;
+      } else {
+        // Edit mode: start from trimStart
+        player.currentTime = trimStart / 1000;
       }
     }
-  };
+  }, [player, isPreviewMode, trimStart]);
 
-  const handlePlayPause = async () => {
-    if (isPlaying) {
-      await videoRef.current?.pauseAsync();
-    } else {
-      await videoRef.current?.playAsync();
+  // Control modal preview player
+  useEffect(() => {
+    if (showMetadataModal && modalPlayer) {
+      try {
+        // Start from trimStart
+        modalPlayer.currentTime = trimStart / 1000;
+        modalPlayer.play();
+
+        // Loop within trim range
+        const interval = setInterval(() => {
+          try {
+            const currentTimeMs = modalPlayer.currentTime * 1000;
+            if (currentTimeMs >= trimEnd) {
+              modalPlayer.currentTime = trimStart / 1000;
+            }
+          } catch (error) {
+            // Ignore - player may be destroyed
+          }
+        }, 100);
+
+        return () => clearInterval(interval);
+      } catch (error) {
+        console.log("Error starting modal player:", error);
+      }
+    } else if (!showMetadataModal && modalPlayer) {
+      // Stop when modal closes
+      try {
+        modalPlayer.pause();
+      } catch (error) {
+        // Ignore - player may already be destroyed
+      }
+    }
+  }, [showMetadataModal, modalPlayer, trimStart, trimEnd]);
+
+  const handlePlayPause = () => {
+    if (!player) return;
+
+    try {
+      if (isPlaying) {
+        player.pause();
+        setIsPlaying(false);
+      } else {
+        player.play();
+        setIsPlaying(true);
+      }
+    } catch (error) {
+      console.log("Error toggling playback:", error);
     }
   };
 
-  const handleSeek = async (value: number) => {
-    await videoRef.current?.setPositionAsync(value);
-  };
+  const handleApplyCrop = () => {
+    if (!selectedVideo) return;
 
-  const handleAddText = () => {
-    if (textInput.trim()) {
-      addTextOverlay({
-        id: Date.now().toString(),
-        text: textInput,
-        x: 50,
-        y: 50,
-        fontSize: 24,
-        color: '#FFFFFF',
-        timestamp: currentTime,
-      });
-      setTextInput('');
-      setShowTextModal(false);
-      Alert.alert('Success', 'Text overlay added!');
+    // Validate video length
+    if (duration < CROP_DURATION) {
+      Alert.alert("Video Too Short", "Video must be at least 5 seconds long");
+      return;
     }
-  };
 
-  const handleApplyFilter = () => {
-    if (selectedFilter) {
-      addFilter({
-        type: selectedFilter as any,
-        intensity: 1.0,
-      });
-      setShowFilterModal(false);
-      Alert.alert('Success', 'Filter applied!');
+    // Validate trim range is exactly 5 seconds
+    const cropDuration = trimEnd - trimStart;
+    if (Math.abs(cropDuration - CROP_DURATION) > 100) {
+      // Allow 100ms tolerance
+      Alert.alert("Invalid Duration", "Crop must be exactly 5 seconds");
+      return;
     }
+
+    // Pause the main player before opening modal
+    try {
+      if (player) {
+        player.pause();
+        setIsPlaying(false);
+      }
+    } catch (error) {
+      console.log("Error pausing player:", error);
+    }
+
+    // Show metadata modal to collect name and description
+    setShowMetadataModal(true);
   };
 
-  const handleExport = () => {
-    router.push('/export');
+  const handleSaveCroppedVideo = () => {
+    if (!selectedVideo) return;
+
+    // Validate metadata
+    if (!videoName.trim()) {
+      Alert.alert(
+        "Required Field",
+        "Please enter a name for your video diary entry"
+      );
+      return;
+    }
+
+    if (!videoDescription.trim()) {
+      Alert.alert(
+        "Required Field",
+        "Please enter a description for your video diary entry"
+      );
+      return;
+    }
+
+    // Execute video cropping via Tanstack Query
+    cropVideo(
+      {
+        videoUri: selectedVideo.uri,
+        startTime: trimStart,
+        endTime: trimEnd,
+      },
+      {
+        onSuccess: async (data) => {
+          // Generate thumbnail for the cropped video
+          const thumbnail = await generateThumbnail(data.uri);
+
+          // Save to cropped videos store
+          const croppedVideo = {
+            id: Date.now().toString(),
+            name: videoName,
+            description: videoDescription,
+            uri: data.uri,
+            originalVideoUri: selectedVideo.uri,
+            startTime: trimStart,
+            endTime: trimEnd,
+            duration: data.duration,
+            thumbnail: thumbnail || undefined,
+            width: selectedVideo.width,
+            height: selectedVideo.height,
+            aspectRatio: selectedAspectRatio,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+
+          addCroppedVideo(croppedVideo);
+
+          setShowMetadataModal(false);
+          setVideoName("");
+          setVideoDescription("");
+          setShowSuccessModal(true);
+        },
+        onError: (error) => {
+          Alert.alert("Error", `Failed to crop video: ${error.message}`);
+        },
+      }
+    );
   };
 
   if (!selectedVideo) {
@@ -114,357 +372,269 @@ export default function EditorScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#007AFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Video Editor</Text>
-        <TouchableOpacity onPress={handleExport} style={styles.exportButton}>
-          <Ionicons name="download" size={24} color="#007AFF" />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.videoContainer}>
-        <Video
-          ref={videoRef}
-          source={{ uri: selectedVideo.uri }}
-          style={styles.video}
-          resizeMode={ResizeMode.CONTAIN}
-          onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-          shouldPlay={false}
-        />
-      </View>
-
-      <View style={styles.controls}>
-        <View style={styles.timelineContainer}>
-          <Text style={styles.timeText}>{formatDuration(currentTime)}</Text>
-          <Slider
-            style={styles.slider}
-            minimumValue={0}
-            maximumValue={duration}
-            value={currentTime}
-            onValueChange={handleSeek}
-            minimumTrackTintColor="#007AFF"
-            maximumTrackTintColor="#ccc"
-          />
-          <Text style={styles.timeText}>{formatDuration(duration)}</Text>
-        </View>
-
-        <View style={styles.playbackControls}>
-          <TouchableOpacity onPress={handlePlayPause} style={styles.playButton}>
-            <Ionicons name={isPlaying ? 'pause' : 'play'} size={48} color="#007AFF" />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.trimControls}>
-          <Text style={styles.sectionTitle}>Trim Video</Text>
-          <View style={styles.trimRow}>
-            <View style={styles.trimInput}>
-              <Text style={styles.trimLabel}>Start</Text>
-              <Slider
-                style={styles.trimSlider}
-                minimumValue={0}
-                maximumValue={duration}
-                value={trimStart}
-                onValueChange={setTrimStart}
-                minimumTrackTintColor="#34C759"
-                maximumTrackTintColor="#ccc"
+    <GestureHandlerRootView className="flex-1">
+      <SafeAreaView className="flex-1 bg-black" edges={[]}>
+        {/* Video Player - Full Height */}
+        <View className="relative flex-1 bg-black">
+          {player && selectedVideo ? (
+            <>
+              <VideoView
+                player={player}
+                style={{ width: "100%", height: "100%" }}
+                contentFit={
+                  selectedAspectRatio === "original" ? "contain" : "cover"
+                }
+                nativeControls={false}
+                allowsPictureInPicture={false}
               />
-              <Text style={styles.trimValue}>{formatDuration(trimStart)}</Text>
+            </>
+          ) : (
+            <View
+              style={{
+                flex: 1,
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              <ActivityIndicator size="large" color="#0095f6" />
+              <Text style={{ color: "white", marginTop: 8 }}>
+                Loading video...
+              </Text>
             </View>
-            <View style={styles.trimInput}>
-              <Text style={styles.trimLabel}>End</Text>
-              <Slider
-                style={styles.trimSlider}
-                minimumValue={0}
-                maximumValue={duration}
-                value={trimEnd}
-                onValueChange={setTrimEnd}
-                minimumTrackTintColor="#FF3B30"
-                maximumTrackTintColor="#ccc"
-              />
-              <Text style={styles.trimValue}>{formatDuration(trimEnd)}</Text>
-            </View>
+          )}
+
+          {/* Top Navigation Bar */}
+          <View
+            style={{
+              position: "absolute",
+              top: insets.top,
+              left: 0,
+              right: 0,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            {/* Back Button */}
+            <TouchableOpacity
+              onPress={() => {
+                // Step 1: Hide scrubber to trigger cleanup
+                setShowScrubber(false);
+
+                // Step 2: Cleanup players
+                try {
+                  if (player) player.pause();
+                } catch (error) {
+                  // Ignore
+                }
+                try {
+                  if (modalPlayer) modalPlayer.pause();
+                } catch (error) {
+                  // Ignore
+                }
+
+                // Step 3: Navigate after cleanup has time to run
+                setTimeout(() => {
+                  router.push("/(tabs)");
+                }, 300);
+              }}
+              className="w-10 h-10 rounded-full bg-black/50 items-center justify-center"
+            >
+              <Ionicons name="arrow-back" size={24} color="#ffffff" />
+            </TouchableOpacity>
+
+            {/* Edit Text */}
+            <Text className="text-white text-base font-semibold">Edit</Text>
+
+            {/* Checkmark Button - Save */}
+            <TouchableOpacity
+              onPress={handleApplyCrop}
+              disabled={isCropping || duration < CROP_DURATION}
+              className={`w-10 h-10 rounded-full items-center justify-center ${
+                isCropping || duration < CROP_DURATION
+                  ? "bg-gray-600/50"
+                  : "bg-black/50"
+              }`}
+            >
+              {isCropping ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Ionicons name="checkmark" size={24} color="#ffffff" />
+              )}
+            </TouchableOpacity>
           </View>
-        </View>
-      </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.toolsBar}>
-        <TouchableOpacity style={styles.toolButton} onPress={() => setShowTextModal(true)}>
-          <Ionicons name="text" size={24} color="#fff" />
-          <Text style={styles.toolButtonText}>Add Text</Text>
-        </TouchableOpacity>
+          {/* Aspect Ratio Selector - Bottom Right */}
+          <View className="absolute bottom-24 right-4 gap-2">
 
-        <TouchableOpacity style={styles.toolButton} onPress={() => setShowFilterModal(true)}>
-          <Ionicons name="color-filter" size={24} color="#fff" />
-          <Text style={styles.toolButtonText}>Filters</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.toolButton} onPress={() => Alert.alert('Coming Soon', 'Split feature')}>
-          <Ionicons name="cut" size={24} color="#fff" />
-          <Text style={styles.toolButtonText}>Split</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.toolButton} onPress={() => Alert.alert('Coming Soon', 'Merge feature')}>
-          <Ionicons name="git-merge" size={24} color="#fff" />
-          <Text style={styles.toolButtonText}>Merge</Text>
-        </TouchableOpacity>
-      </ScrollView>
-
-      {/* Text Overlay Modal */}
-      <Modal
-        visible={showTextModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowTextModal(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Add Text Overlay</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Enter text..."
-              value={textInput}
-              onChangeText={setTextInput}
-              multiline
-            />
-            <View style={styles.modalButtons}>
+            {getAspectRatios().map((ratio) => (
               <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setShowTextModal(false)}
+                key={ratio.value}
+                onPress={() => setSelectedAspectRatio(ratio.value)}
+                className="bg-black/70 rounded-full px-3 py-2 flex-row items-center gap-2"
+                style={{ minWidth: ratio.value === "original" ? 150 : 80 }}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.confirmButton]}
-                onPress={handleAddText}
-              >
-                <Text style={styles.confirmButtonText}>Add</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Filter Modal */}
-      <Modal
-        visible={showFilterModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowFilterModal(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Apply Filter</Text>
-            <ScrollView style={styles.filterList}>
-              {['grayscale', 'sepia', 'brightness', 'contrast', 'saturation', 'blur'].map((filter) => (
-                <TouchableOpacity
-                  key={filter}
-                  style={[
-                    styles.filterOption,
-                    selectedFilter === filter && styles.filterOptionSelected,
-                  ]}
-                  onPress={() => setSelectedFilter(filter)}
+                <Ionicons
+                  name={ratio.icon as any}
+                  size={16}
+                  color={selectedAspectRatio === ratio.value ? "#fff" : "#aaa"}
+                />
+                <Text
+                  className={`text-xs font-semibold ${
+                    selectedAspectRatio === ratio.value
+                      ? "text-white"
+                      : "text-white/60"
+                  }`}
+                  numberOfLines={1}
                 >
-                  <Text style={styles.filterOptionText}>{filter.toUpperCase()}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setShowFilterModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                  {ratio.label}
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.confirmButton]}
-                onPress={handleApplyFilter}
-              >
-                <Text style={styles.confirmButtonText}>Apply</Text>
-              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Preview/Crop Toggle Switch - Bottom Right */}
+          <View className="absolute bottom-8 right-4">
+            <TouchableOpacity
+              onPress={() => setIsPreviewMode(!isPreviewMode)}
+              className="bg-black/70 rounded-full flex-row p-1"
+              style={{ width: 140 }}
+            >
+              {/* Background sliding indicator */}
+              <Animated.View
+                className="absolute top-1 left-1 bottom-1 rounded-full bg-white/30"
+                style={[
+                  {
+                    width: 66,
+                  },
+                  animatedIndicatorStyle,
+                ]}
+              />
+
+              {/* Preview Option */}
+              <View className="flex-1 items-center justify-center py-1.5 z-10">
+                <Text
+                  className={`text-xs font-semibold ${
+                    isPreviewMode ? "text-white" : "text-white/60"
+                  }`}
+                >
+                  Preview
+                </Text>
+              </View>
+
+              {/* Crop Option */}
+              <View className="flex-1 items-center justify-center py-1.5 z-10">
+                <Text
+                  className={`text-xs font-semibold ${
+                    !isPreviewMode ? "text-white" : "text-white/60"
+                  }`}
+                >
+                  Crop
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* Play/Pause Button Overlay */}
+          <View className="absolute inset-0 items-center justify-center">
+            <TouchableOpacity
+              onPress={handlePlayPause}
+              className="w-16 h-16 rounded-full bg-black/50 items-center justify-center"
+            >
+              <Ionicons
+                name={isPlaying ? "pause" : "play"}
+                size={40}
+                color="#ffffff"
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Duration Display - Bottom Left */}
+          <View className="absolute bottom-8 left-4">
+            <View className="bg-black/70 px-3 py-2 rounded-full">
+              <Text className="text-white text-xs font-semibold">
+                {formatDuration(currentTime)} / {formatDuration(duration)}
+              </Text>
             </View>
           </View>
         </View>
-      </Modal>
-    </SafeAreaView>
+
+        {/* Bottom Controls - Animated scrubber */}
+        <Animated.View
+          className="bg-instagram-surface"
+          style={animatedScrubberStyle}
+        >
+          <View className="p-4">
+            {selectedVideo && duration > 0 && showScrubber && (
+              <VideoThumbnailScrubber
+                videoUri={selectedVideo.uri}
+                duration={duration}
+                onTrimChange={(start, end) => {
+                  setTrimStart(start);
+                  setTrimEnd(end);
+                }}
+                trimDuration={CROP_DURATION}
+              />
+            )}
+          </View>
+        </Animated.View>
+
+        {/* Metadata Modal - for Name and Description */}
+        <MetadataModal
+          visible={showMetadataModal}
+          onClose={() => {
+            setShowMetadataModal(false);
+            setVideoName("");
+            setVideoDescription("");
+            // Stop modal player when closing
+            try {
+              if (modalPlayer) modalPlayer.pause();
+            } catch (error) {
+              // Ignore - player may already be destroyed
+            }
+          }}
+          onSave={handleSaveCroppedVideo}
+          videoPlayer={modalPlayer}
+          videoName={videoName}
+          videoDescription={videoDescription}
+          onNameChange={setVideoName}
+          onDescriptionChange={setVideoDescription}
+          trimStart={trimStart}
+          trimEnd={trimEnd}
+          isSaving={isCropping}
+          aspectRatio={selectedAspectRatio}
+        />
+
+        {/* Success Modal */}
+        <SuccessModal
+          visible={showSuccessModal}
+          onClose={() => {
+            setShowSuccessModal(false);
+
+            // Hide scrubber to trigger cleanup
+            setShowScrubber(false);
+
+            // Stop all players before navigating away
+            try {
+              if (player) player.pause();
+            } catch (error) {
+              // Ignore - player may already be destroyed
+            }
+            try {
+              if (modalPlayer) modalPlayer.pause();
+            } catch (error) {
+              // Ignore - player may already be destroyed
+            }
+
+            // Navigate after cleanup
+            setTimeout(() => {
+              router.push("/(tabs)");
+            }, 300);
+          }}
+        />
+      </SafeAreaView>
+    </GestureHandlerRootView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-    backgroundColor: '#1c1c1e',
-  },
-  backButton: {
-    padding: 8,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  exportButton: {
-    padding: 8,
-  },
-  videoContainer: {
-    width: '100%',
-    aspectRatio: 16 / 9,
-    backgroundColor: '#000',
-  },
-  video: {
-    width: '100%',
-    height: '100%',
-  },
-  controls: {
-    backgroundColor: '#1c1c1e',
-    padding: 16,
-  },
-  timelineContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  timeText: {
-    color: '#fff',
-    fontSize: 12,
-    width: 60,
-  },
-  slider: {
-    flex: 1,
-    marginHorizontal: 8,
-  },
-  playbackControls: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  playButton: {
-    padding: 12,
-  },
-  trimControls: {
-    marginTop: 16,
-  },
-  sectionTitle: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  trimRow: {
-    gap: 12,
-  },
-  trimInput: {
-    marginBottom: 8,
-  },
-  trimLabel: {
-    color: '#aaa',
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  trimSlider: {
-    width: '100%',
-  },
-  trimValue: {
-    color: '#fff',
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  toolsBar: {
-    backgroundColor: '#1c1c1e',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  toolButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginRight: 12,
-    minWidth: 80,
-  },
-  toolButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    marginTop: 4,
-  },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-  },
-  modalContent: {
-    width: '80%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  textInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    minHeight: 100,
-    marginBottom: 16,
-  },
-  filterList: {
-    maxHeight: 300,
-    marginBottom: 16,
-  },
-  filterOption: {
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  filterOptionSelected: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-  },
-  filterOptionText: {
-    fontSize: 16,
-    textAlign: 'center',
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  modalButton: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  cancelButton: {
-    backgroundColor: '#f0f0f0',
-  },
-  cancelButtonText: {
-    color: '#333',
-    fontWeight: '600',
-  },
-  confirmButton: {
-    backgroundColor: '#007AFF',
-  },
-  confirmButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-});

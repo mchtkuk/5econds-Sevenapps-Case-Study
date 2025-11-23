@@ -1,80 +1,93 @@
-import React, { useState } from 'react';
+import { useVideoStore } from "@/store/video-store";
+import { ExportOptions } from "@/types/video";
+import { Ionicons } from "@expo/vector-icons";
+import * as MediaLibrary from "expo-media-library";
+import { useRouter } from "expo-router";
+import * as Sharing from "expo-sharing";
+import React, { useState } from "react";
 import {
-  View,
-  StyleSheet,
-  TouchableOpacity,
-  Text,
-  SafeAreaView,
-  Alert,
   ActivityIndicator,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import * as Sharing from 'expo-sharing';
-import * as MediaLibrary from 'expo-media-library';
-import { useVideoStore } from '@/store/videoStore';
-import { ExportOptions } from '@/types/video';
+  Alert,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 export default function ExportScreen() {
   const router = useRouter();
-  const { selectedVideo, exportProgress, setExportProgress, resetExportProgress } = useVideoStore();
+  const {
+    selectedVideo,
+    exportProgress,
+    setExportProgress,
+    resetExportProgress,
+  } = useVideoStore();
 
-  const [selectedQuality, setSelectedQuality] = useState<ExportOptions['quality']>('medium');
+  const [selectedQuality, setSelectedQuality] =
+    useState<ExportOptions["quality"]>("medium");
   const [isExporting, setIsExporting] = useState(false);
 
   const qualityOptions: Array<{
-    value: ExportOptions['quality'];
+    value: ExportOptions["quality"];
     label: string;
     description: string;
     icon: string;
   }> = [
     {
-      value: 'low',
-      label: 'Low Quality',
-      description: '480p - Smaller file size',
-      icon: 'stats-chart',
+      value: "low",
+      label: "Low Quality",
+      description: "480p - Smaller file size",
+      icon: "stats-chart",
     },
     {
-      value: 'medium',
-      label: 'Medium Quality',
-      description: '720p - Balanced',
-      icon: 'stats-chart',
+      value: "medium",
+      label: "Medium Quality",
+      description: "720p - Balanced",
+      icon: "stats-chart",
     },
     {
-      value: 'high',
-      label: 'High Quality',
-      description: '1080p - Best quality',
-      icon: 'stats-chart',
+      value: "high",
+      label: "High Quality",
+      description: "1080p - Best quality",
+      icon: "stats-chart",
     },
     {
-      value: 'original',
-      label: 'Original Quality',
-      description: 'Keep original settings',
-      icon: 'sparkles',
+      value: "original",
+      label: "Original Quality",
+      description: "Keep original settings",
+      icon: "sparkles",
     },
   ];
 
   const handleExport = async () => {
     if (!selectedVideo) {
-      Alert.alert('Error', 'No video selected');
+      Alert.alert("Error", "No video selected");
       return;
     }
 
     try {
       setIsExporting(true);
-      setExportProgress({ progress: 0, status: 'processing' });
+      setExportProgress({ progress: 0, status: "processing" });
 
       // Simulate export progress (in a real app, this would be actual video processing)
       for (let i = 0; i <= 100; i += 10) {
         await new Promise((resolve) => setTimeout(resolve, 300));
-        setExportProgress({ progress: i, status: 'processing' });
+        setExportProgress({ progress: i, status: "processing" });
       }
 
       // Request permissions
       const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please grant media library permissions to save the video.');
-        setExportProgress({ progress: 0, status: 'failed', error: 'Permission denied' });
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "Please grant media library permissions to save the video."
+        );
+        setExportProgress({
+          progress: 0,
+          status: "failed",
+          error: "Permission denied",
+        });
         return;
       }
 
@@ -82,37 +95,37 @@ export default function ExportScreen() {
       // For now, we'll use the original video URI
       setExportProgress({
         progress: 100,
-        status: 'completed',
+        status: "completed",
         outputUri: selectedVideo.uri,
       });
 
       Alert.alert(
-        'Export Completed',
-        'Your video has been successfully exported!',
+        "Export Completed",
+        "Your video has been successfully exported!",
         [
           {
-            text: 'Share',
+            text: "Share",
             onPress: handleShare,
           },
           {
-            text: 'Save to Gallery',
+            text: "Save to Gallery",
             onPress: handleSaveToGallery,
           },
           {
-            text: 'Done',
-            style: 'cancel',
+            text: "Done",
+            style: "cancel",
             onPress: () => router.back(),
           },
         ]
       );
     } catch (error) {
-      console.error('Export error:', error);
+      console.error("Export error:", error);
       setExportProgress({
         progress: 0,
-        status: 'failed',
-        error: 'Export failed',
+        status: "failed",
+        error: "Export failed",
       });
-      Alert.alert('Error', 'Failed to export video');
+      Alert.alert("Error", "Failed to export video");
     } finally {
       setIsExporting(false);
     }
@@ -120,7 +133,7 @@ export default function ExportScreen() {
 
   const handleShare = async () => {
     if (!exportProgress.outputUri) {
-      Alert.alert('Error', 'No exported video to share');
+      Alert.alert("Error", "No exported video to share");
       return;
     }
 
@@ -128,31 +141,33 @@ export default function ExportScreen() {
       const isAvailable = await Sharing.isAvailableAsync();
       if (isAvailable) {
         await Sharing.shareAsync(exportProgress.outputUri, {
-          dialogTitle: 'Share your video',
-          mimeType: 'video/mp4',
+          dialogTitle: "Share your video",
+          mimeType: "video/mp4",
         });
       } else {
-        Alert.alert('Error', 'Sharing is not available on this device');
+        Alert.alert("Error", "Sharing is not available on this device");
       }
     } catch (error) {
-      console.error('Sharing error:', error);
-      Alert.alert('Error', 'Failed to share video');
+      console.error("Sharing error:", error);
+      Alert.alert("Error", "Failed to share video");
     }
   };
 
   const handleSaveToGallery = async () => {
     if (!exportProgress.outputUri) {
-      Alert.alert('Error', 'No exported video to save');
+      Alert.alert("Error", "No exported video to save");
       return;
     }
 
     try {
-      const asset = await MediaLibrary.createAssetAsync(exportProgress.outputUri);
-      await MediaLibrary.createAlbumAsync('VidCut', asset, false);
-      Alert.alert('Success', 'Video saved to gallery!');
+      const asset = await MediaLibrary.createAssetAsync(
+        exportProgress.outputUri
+      );
+      await MediaLibrary.createAlbumAsync("VidCut", asset, false);
+      Alert.alert("Success", "Video saved to gallery!");
     } catch (error) {
-      console.error('Save error:', error);
-      Alert.alert('Error', 'Failed to save video to gallery');
+      console.error("Save error:", error);
+      Alert.alert("Error", "Failed to save video to gallery");
     }
   };
 
@@ -163,7 +178,10 @@ export default function ExportScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backButton}
+        >
           <Ionicons name="arrow-back" size={24} color="#007AFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Export Video</Text>
@@ -179,7 +197,8 @@ export default function ExportScreen() {
               key={option.value}
               style={[
                 styles.qualityOption,
-                selectedQuality === option.value && styles.qualityOptionSelected,
+                selectedQuality === option.value &&
+                  styles.qualityOptionSelected,
               ]}
               onPress={() => setSelectedQuality(option.value)}
               disabled={isExporting}
@@ -187,12 +206,13 @@ export default function ExportScreen() {
               <Ionicons
                 name={option.icon as any}
                 size={32}
-                color={selectedQuality === option.value ? '#007AFF' : '#666'}
+                color={selectedQuality === option.value ? "#007AFF" : "#666"}
               />
               <Text
                 style={[
                   styles.qualityLabel,
-                  selectedQuality === option.value && styles.qualityLabelSelected,
+                  selectedQuality === option.value &&
+                    styles.qualityLabelSelected,
                 ]}
               >
                 {option.label}
@@ -200,7 +220,8 @@ export default function ExportScreen() {
               <Text
                 style={[
                   styles.qualityDescription,
-                  selectedQuality === option.value && styles.qualityDescriptionSelected,
+                  selectedQuality === option.value &&
+                    styles.qualityDescriptionSelected,
                 ]}
               >
                 {option.description}
@@ -221,23 +242,36 @@ export default function ExportScreen() {
             </Text>
             <View style={styles.progressBar}>
               <View
-                style={[styles.progressFill, { width: `${exportProgress.progress}%` }]}
+                style={[
+                  styles.progressFill,
+                  { width: `${exportProgress.progress}%` },
+                ]}
               />
             </View>
-            <ActivityIndicator size="large" color="#007AFF" style={styles.spinner} />
+            <ActivityIndicator
+              size="large"
+              color="#ffffff"
+              style={styles.spinner}
+            />
           </View>
         )}
 
-        {exportProgress.status === 'completed' && !isExporting && (
+        {exportProgress.status === "completed" && !isExporting && (
           <View style={styles.successContainer}>
             <Ionicons name="checkmark-circle" size={64} color="#34C759" />
             <Text style={styles.successText}>Export Completed!</Text>
             <View style={styles.actionButtons}>
-              <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={handleShare}
+              >
                 <Ionicons name="share-social" size={24} color="#fff" />
                 <Text style={styles.actionButtonText}>Share</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.actionButton} onPress={handleSaveToGallery}>
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={handleSaveToGallery}
+              >
                 <Ionicons name="save" size={24} color="#fff" />
                 <Text style={styles.actionButtonText}>Save</Text>
               </TouchableOpacity>
@@ -245,7 +279,7 @@ export default function ExportScreen() {
           </View>
         )}
 
-        {!isExporting && exportProgress.status !== 'completed' && (
+        {!isExporting && exportProgress.status !== "completed" && (
           <TouchableOpacity
             style={styles.exportButton}
             onPress={handleExport}
@@ -263,24 +297,24 @@ export default function ExportScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#f5f5f5",
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     padding: 16,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: "#e0e0e0",
   },
   backButton: {
     padding: 8,
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: "600",
+    color: "#333",
   },
   content: {
     flex: 1,
@@ -288,8 +322,8 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: "600",
+    color: "#333",
     marginBottom: 16,
   },
   qualityOptions: {
@@ -297,114 +331,114 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   qualityOption: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     padding: 20,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#e0e0e0',
-    position: 'relative',
+    borderColor: "#e0e0e0",
+    position: "relative",
   },
   qualityOptionSelected: {
-    borderColor: '#007AFF',
-    backgroundColor: '#F0F8FF',
+    borderColor: "#007AFF",
+    backgroundColor: "#F0F8FF",
   },
   qualityLabel: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: "600",
+    color: "#333",
     marginTop: 8,
   },
   qualityLabelSelected: {
-    color: '#007AFF',
+    color: "#007AFF",
   },
   qualityDescription: {
     fontSize: 14,
-    color: '#666',
+    color: "#666",
     marginTop: 4,
   },
   qualityDescriptionSelected: {
-    color: '#007AFF',
+    color: "#007AFF",
   },
   checkmark: {
-    position: 'absolute',
+    position: "absolute",
     top: 16,
     right: 16,
   },
   progressContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     padding: 24,
     borderRadius: 12,
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: 24,
   },
   progressText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: "600",
+    color: "#333",
     marginBottom: 12,
   },
   progressBar: {
-    width: '100%',
+    width: "100%",
     height: 8,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: "#e0e0e0",
     borderRadius: 4,
-    overflow: 'hidden',
+    overflow: "hidden",
     marginBottom: 16,
   },
   progressFill: {
-    height: '100%',
-    backgroundColor: '#007AFF',
+    height: "100%",
+    backgroundColor: "#007AFF",
     borderRadius: 4,
   },
   spinner: {
     marginTop: 8,
   },
   successContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     padding: 32,
     borderRadius: 12,
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: 24,
   },
   successText: {
     fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: "600",
+    color: "#333",
     marginTop: 16,
     marginBottom: 24,
   },
   actionButtons: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
-    width: '100%',
+    width: "100%",
   },
   actionButton: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#007AFF',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#007AFF",
     padding: 16,
     borderRadius: 12,
     gap: 8,
   },
   actionButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   exportButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#007AFF',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#007AFF",
     padding: 16,
     borderRadius: 12,
     gap: 8,
   },
   exportButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });
