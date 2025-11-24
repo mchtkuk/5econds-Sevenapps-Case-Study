@@ -8,12 +8,12 @@ import React, { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function ExportScreen() {
   const router = useRouter();
@@ -119,7 +119,6 @@ export default function ExportScreen() {
         ]
       );
     } catch (error) {
-      console.error("Export error:", error);
       setExportProgress({
         progress: 0,
         status: "failed",
@@ -148,7 +147,6 @@ export default function ExportScreen() {
         Alert.alert("Error", "Sharing is not available on this device");
       }
     } catch (error) {
-      console.error("Sharing error:", error);
       Alert.alert("Error", "Failed to share video");
     }
   };
@@ -166,7 +164,6 @@ export default function ExportScreen() {
       await MediaLibrary.createAlbumAsync("VidCut", asset, false);
       Alert.alert("Success", "Video saved to gallery!");
     } catch (error) {
-      console.error("Save error:", error);
       Alert.alert("Error", "Failed to save video to gallery");
     }
   };

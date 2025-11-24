@@ -15,7 +15,7 @@ interface ReelsVideoCardProps {
   onShare?: () => void;
 }
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("screen"); // Use 'screen' instead of 'window' to get full screen including notch
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window"); // Use 'window' for actual viewport
 
 const ReelsVideoCardComponent: React.FC<ReelsVideoCardProps> = ({
   video,

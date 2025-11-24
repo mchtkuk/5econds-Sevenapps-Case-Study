@@ -65,7 +65,6 @@ export default function OnboardingScreen() {
       await AsyncStorage.setItem('hasSeenOnboarding', 'true');
       router.replace('/(tabs)');
     } catch (error) {
-      console.error('Error saving onboarding status:', error);
       router.replace('/(tabs)');
     }
   };

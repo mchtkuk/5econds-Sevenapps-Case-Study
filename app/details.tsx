@@ -1,5 +1,6 @@
 import { useVideoStore } from "@/store/video-store";
 import { formatDuration, downloadVideoToGallery, shareVideo } from "@/utils/video-utils";
+import { validateVideoMetadata } from "@/utils/validation";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { VideoView, useVideoPlayer } from "expo-video";
@@ -28,8 +29,50 @@ export default function DetailsScreen() {
   const [editDescription, setEditDescription] = useState(
     croppedVideo?.description || ""
   );
+  const [validationErrors, setValidationErrors] = useState<{
+    name?: string;
+    description?: string;
+  }>({});
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+
+  const handleEditNameChange = (text: string) => {
+    setEditName(text);
+    // Clear error when user starts typing
+    if (validationErrors.name) {
+      setValidationErrors((prev) => ({ ...prev, name: undefined }));
+    }
+  };
+
+  const handleEditDescriptionChange = (text: string) => {
+    setEditDescription(text);
+    // Clear error when user starts typing
+    if (validationErrors.description) {
+      setValidationErrors((prev) => ({ ...prev, description: undefined }));
+    }
+  };
+
+  const handleSaveEdit = () => {
+    // Validate before saving
+    const validation = validateVideoMetadata({
+      name: editName,
+      description: editDescription,
+    });
+
+    if (!validation.success) {
+      setValidationErrors(validation.errors || {});
+      return;
+    }
+
+    // Clear errors and save
+    setValidationErrors({});
+    updateCroppedVideo(videoId || "", {
+      name: editName,
+      description: editDescription,
+    });
+    setShowEditModal(false);
+    Alert.alert("Success", "Video details updated successfully!");
+  };
 
   const player = useVideoPlayer(croppedVideo?.uri || "", (player) => {
     player.loop = true;
@@ -247,6 +290,7 @@ export default function DetailsScreen() {
                   setShowEditModal(false);
                   setEditName(croppedVideo?.name || "");
                   setEditDescription(croppedVideo?.description || "");
+                  setValidationErrors({});
                 }}
                 className="p-2"
               >
@@ -266,13 +310,23 @@ export default function DetailsScreen() {
                   Title
                 </Text>
                 <TextInput
-                  className="bg-instagram-input border border-gray-700 rounded-xl p-4 text-base text-white"
+                  className={`bg-instagram-input border rounded-xl p-4 text-base text-white ${
+                    validationErrors.name ? "border-red-500" : "border-gray-700"
+                  }`}
                   placeholder="Give your clip a name..."
                   placeholderTextColor="#666"
                   value={editName}
-                  onChangeText={setEditName}
+                  onChangeText={handleEditNameChange}
                   autoCapitalize="sentences"
                 />
+                {validationErrors.name && (
+                  <View className="flex-row items-center gap-1 mt-2">
+                    <Ionicons name="alert-circle" size={16} color="#ef4444" />
+                    <Text className="text-red-500 text-sm">
+                      {validationErrors.name}
+                    </Text>
+                  </View>
+                )}
               </View>
 
               {/* Description Input */}
@@ -281,43 +335,32 @@ export default function DetailsScreen() {
                   Description
                 </Text>
                 <TextInput
-                  className="bg-instagram-input border border-gray-700 rounded-xl p-4 text-base text-white min-h-[120px]"
+                  className={`bg-instagram-input border rounded-xl p-4 text-base text-white min-h-[120px] ${
+                    validationErrors.description ? "border-red-500" : "border-gray-700"
+                  }`}
                   placeholder="Add a description..."
                   placeholderTextColor="#666"
                   value={editDescription}
-                  onChangeText={setEditDescription}
+                  onChangeText={handleEditDescriptionChange}
                   multiline
                   numberOfLines={5}
                   textAlignVertical="top"
                   autoCapitalize="sentences"
                 />
+                {validationErrors.description && (
+                  <View className="flex-row items-center gap-1 mt-2">
+                    <Ionicons name="alert-circle" size={16} color="#ef4444" />
+                    <Text className="text-red-500 text-sm">
+                      {validationErrors.description}
+                    </Text>
+                  </View>
+                )}
               </View>
 
               {/* Save Button */}
               <TouchableOpacity
                 className="bg-white rounded-xl p-4 items-center"
-                onPress={() => {
-                  if (!editName.trim()) {
-                    Alert.alert(
-                      "Required Field",
-                      "Please enter a name for your video"
-                    );
-                    return;
-                  }
-                  if (!editDescription.trim()) {
-                    Alert.alert(
-                      "Required Field",
-                      "Please enter a description for your video"
-                    );
-                    return;
-                  }
-                  updateCroppedVideo(videoId || "", {
-                    name: editName,
-                    description: editDescription,
-                  });
-                  setShowEditModal(false);
-                  Alert.alert("Success", "Video details updated successfully!");
-                }}
+                onPress={handleSaveEdit}
               >
                 <Text className="text-black text-base font-bold">
                   Save Changes

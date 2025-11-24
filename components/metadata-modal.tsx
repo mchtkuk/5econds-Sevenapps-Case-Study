@@ -1,8 +1,9 @@
 import { AspectRatio } from "@/types/video";
 import { formatDuration } from "@/utils/video-utils";
+import { validateVideoMetadata } from "@/utils/validation";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoPlayer, VideoView } from "expo-video";
-import React from "react";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -44,6 +45,44 @@ export function MetadataModal({
   isSaving,
   aspectRatio = "original",
 }: MetadataModalProps) {
+  const [validationErrors, setValidationErrors] = useState<{
+    name?: string;
+    description?: string;
+  }>({});
+
+  const handleSave = () => {
+    // Validate before saving
+    const validation = validateVideoMetadata({
+      name: videoName,
+      description: videoDescription,
+    });
+
+    if (!validation.success) {
+      setValidationErrors(validation.errors || {});
+      return;
+    }
+
+    // Clear errors and proceed with save
+    setValidationErrors({});
+    onSave();
+  };
+
+  const handleNameChange = (text: string) => {
+    onNameChange(text);
+    // Clear error when user starts typing
+    if (validationErrors.name) {
+      setValidationErrors((prev) => ({ ...prev, name: undefined }));
+    }
+  };
+
+  const handleDescriptionChange = (text: string) => {
+    onDescriptionChange(text);
+    // Clear error when user starts typing
+    if (validationErrors.description) {
+      setValidationErrors((prev) => ({ ...prev, description: undefined }));
+    }
+  };
+
   const getContentFit = () => {
     if (aspectRatio === "original") {
       return "contain" as const;
@@ -132,12 +171,22 @@ export function MetadataModal({
                   Title
                 </Text>
                 <TextInput
-                  className="bg-instagram-input border border-gray-700 rounded-xl p-4 text-base text-white"
+                  className={`bg-instagram-input border rounded-xl p-4 text-base text-white ${
+                    validationErrors.name ? "border-red-500" : "border-gray-700"
+                  }`}
                   placeholder="Give your clip a name..."
                   placeholderTextColor="#666"
                   value={videoName}
-                  onChangeText={onNameChange}
+                  onChangeText={handleNameChange}
                 />
+                {validationErrors.name && (
+                  <View className="flex-row items-center gap-1 mt-2">
+                    <Ionicons name="alert-circle" size={16} color="#ef4444" />
+                    <Text className="text-red-500 text-sm">
+                      {validationErrors.name}
+                    </Text>
+                  </View>
+                )}
               </View>
 
               {/* Description Input */}
@@ -146,15 +195,25 @@ export function MetadataModal({
                   Description
                 </Text>
                 <TextInput
-                  className="bg-instagram-input border border-gray-700 rounded-xl p-4 text-base text-white min-h-[120px]"
+                  className={`bg-instagram-input border rounded-xl p-4 text-base text-white min-h-[120px] ${
+                    validationErrors.description ? "border-red-500" : "border-gray-700"
+                  }`}
                   placeholder="What makes this moment special?"
                   placeholderTextColor="#666"
                   value={videoDescription}
-                  onChangeText={onDescriptionChange}
+                  onChangeText={handleDescriptionChange}
                   multiline
                   numberOfLines={4}
                   textAlignVertical="top"
                 />
+                {validationErrors.description && (
+                  <View className="flex-row items-center gap-1 mt-2">
+                    <Ionicons name="alert-circle" size={16} color="#ef4444" />
+                    <Text className="text-red-500 text-sm">
+                      {validationErrors.description}
+                    </Text>
+                  </View>
+                )}
               </View>
 
               {/* Action Buttons */}
@@ -167,14 +226,10 @@ export function MetadataModal({
                 </TouchableOpacity>
                 <TouchableOpacity
                   className={`flex-1 p-4 rounded-xl items-center flex-row justify-center gap-2 ${
-                    isSaving || !videoName.trim() || !videoDescription.trim()
-                      ? "bg-gray-700"
-                      : "bg-instagram-primary"
+                    isSaving ? "bg-gray-700" : "bg-instagram-primary"
                   }`}
-                  onPress={onSave}
-                  disabled={
-                    isSaving || !videoName.trim() || !videoDescription.trim()
-                  }
+                  onPress={handleSave}
+                  disabled={isSaving}
                 >
                   {isSaving ? (
                     <ActivityIndicator color="#ffffff" size="small" />

@@ -14,11 +14,11 @@ import Animated, {
 
 // Clear React Native Image cache
 const clearImageCache = () => {
-  if (Image.clearMemoryCache) {
-    Image.clearMemoryCache();
+  if ((Image as any).clearMemoryCache) {
+    (Image as any).clearMemoryCache();
   }
-  if (Image.clearDiskCache) {
-    Image.clearDiskCache();
+  if ((Image as any).clearDiskCache) {
+    (Image as any).clearDiskCache();
   }
 };
 

@@ -1,21 +1,19 @@
+import { AspectRatioSelector } from "@/components/editor/aspect-ratio-selector";
+import { EditorTopBar } from "@/components/editor/editor-top-bar";
+import { PreviewCropToggle } from "@/components/editor/preview-crop-toggle";
+import { VideoPlayerControls } from "@/components/editor/video-player-controls";
 import { MetadataModal } from "@/components/metadata-modal";
 import { SuccessModal } from "@/components/success-modal";
 import { VideoThumbnailScrubber } from "@/components/video-thumbnail-scrubber";
+import { TOLERANCE, VIDEO } from "@/constants/app";
 import { useVideoCropping } from "@/hooks/use-video-cropping";
 import { useVideoStore } from "@/store/video-store";
 import { AspectRatio } from "@/types/video";
 import { formatDuration, generateThumbnail } from "@/utils/video-utils";
-import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { VideoView, useVideoPlayer } from "expo-video";
 import React, { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
@@ -53,10 +51,8 @@ export default function EditorScreen() {
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [trimStart, setTrimStart] = useState(0);
-  const [trimEnd, setTrimEnd] = useState(5000); // Fixed 5 seconds
+  const [trimEnd, setTrimEnd] = useState<number>(VIDEO.CROP_DURATION_MS);
   const [isPreviewMode, setIsPreviewMode] = useState(false); // Toggle between cropped/uncropped mode
-
-  const CROP_DURATION = 5000; // Fixed 5 seconds in milliseconds
 
   // Animation for toggle switch
   const togglePosition = useSharedValue(1); // Start on Crop (right side)
@@ -95,7 +91,11 @@ export default function EditorScreen() {
   const [showScrubber, setShowScrubber] = useState(true); // Control scrubber visibility for cleanup
 
   // Get dynamic aspect ratios based on video
-  const getAspectRatios = (): { value: AspectRatio; label: string; icon: string }[] => {
+  const getAspectRatios = (): {
+    value: AspectRatio;
+    label: string;
+    icon: string;
+  }[] => {
     // Check if video is already 9:16
     const width = selectedVideo?.width || 0;
     const height = selectedVideo?.height || 0;
@@ -111,8 +111,8 @@ export default function EditorScreen() {
         {
           value: "original",
           label: originalLabel,
-          icon: "resize"
-        }
+          icon: "resize",
+        },
       ];
     }
 
@@ -121,12 +121,12 @@ export default function EditorScreen() {
       {
         value: "original",
         label: originalLabel,
-        icon: "resize"
+        icon: "resize",
       },
       {
         value: "9:16",
         label: "9:16",
-        icon: "phone-portrait"
+        icon: "phone-portrait",
       },
     ];
   };
@@ -143,6 +143,57 @@ export default function EditorScreen() {
     return `${w}:${h}`;
   };
 
+  // Calculate cropped dimensions based on aspect ratio
+  const calculateCroppedDimensions = (): { width?: number; height?: number } => {
+    const originalWidth = selectedVideo?.width;
+    const originalHeight = selectedVideo?.height;
+
+    // If no dimensions or original aspect ratio selected, keep original
+    if (!originalWidth || !originalHeight || selectedAspectRatio === "original") {
+      return { width: originalWidth, height: originalHeight };
+    }
+
+    // Calculate 9:16 dimensions
+    if (selectedAspectRatio === "9:16") {
+      const targetRatio = 9 / 16;
+      const originalRatio = originalWidth / originalHeight;
+
+      if (originalRatio > targetRatio) {
+        // Original is wider (landscape) - crop width, keep height
+        const newWidth = Math.round(originalHeight * targetRatio);
+        return { width: newWidth, height: originalHeight };
+      } else {
+        // Original is taller - crop height, keep width (unlikely for 16:9 → 9:16)
+        const newHeight = Math.round(originalWidth / targetRatio);
+        return { width: originalWidth, height: newHeight };
+      }
+    }
+
+    return { width: originalWidth, height: originalHeight };
+  };
+
+  // Handle back button navigation with cleanup
+  const handleBackNavigation = () => {
+    // Step 1: Hide scrubber to trigger cleanup
+    setShowScrubber(false);
+
+    // Step 2: Cleanup players
+    try {
+      if (player) player.pause();
+    } catch (error) {
+      // Ignore
+    }
+    try {
+      if (modalPlayer) modalPlayer.pause();
+    } catch (error) {
+      // Ignore
+    }
+
+    // Step 3: Navigate after cleanup has time to run
+    setTimeout(() => {
+      router.push("/(tabs)");
+    }, 300);
+  };
 
   useEffect(() => {
     if (!selectedVideo) {
@@ -197,7 +248,7 @@ export default function EditorScreen() {
   useEffect(() => {
     if (duration > 0) {
       // Ensure trimEnd is always 5 seconds from trimStart
-      const maxEnd = Math.min(trimStart + CROP_DURATION, duration);
+      const maxEnd = Math.min(trimStart + VIDEO.CROP_DURATION_MS, duration);
       setTrimEnd(maxEnd);
     }
   }, [duration, trimStart]);
@@ -244,7 +295,7 @@ export default function EditorScreen() {
 
         return () => clearInterval(interval);
       } catch (error) {
-        console.log("Error starting modal player:", error);
+        // Ignore - player may be destroyed
       }
     } else if (!showMetadataModal && modalPlayer) {
       // Stop when modal closes
@@ -268,7 +319,7 @@ export default function EditorScreen() {
         setIsPlaying(true);
       }
     } catch (error) {
-      console.log("Error toggling playback:", error);
+      // Ignore - player may be destroyed
     }
   };
 
@@ -276,15 +327,16 @@ export default function EditorScreen() {
     if (!selectedVideo) return;
 
     // Validate video length
-    if (duration < CROP_DURATION) {
+    if (duration < VIDEO.CROP_DURATION_MS) {
       Alert.alert("Video Too Short", "Video must be at least 5 seconds long");
       return;
     }
 
     // Validate trim range is exactly 5 seconds
     const cropDuration = trimEnd - trimStart;
-    if (Math.abs(cropDuration - CROP_DURATION) > 100) {
-      // Allow 100ms tolerance
+    if (
+      Math.abs(cropDuration - VIDEO.CROP_DURATION_MS) > TOLERANCE.DURATION_MS
+    ) {
       Alert.alert("Invalid Duration", "Crop must be exactly 5 seconds");
       return;
     }
@@ -296,7 +348,7 @@ export default function EditorScreen() {
         setIsPlaying(false);
       }
     } catch (error) {
-      console.log("Error pausing player:", error);
+      // Ignore - player may be destroyed
     }
 
     // Show metadata modal to collect name and description
@@ -335,6 +387,9 @@ export default function EditorScreen() {
           // Generate thumbnail for the cropped video
           const thumbnail = await generateThumbnail(data.uri);
 
+          // Calculate dimensions based on selected aspect ratio
+          const { width, height } = calculateCroppedDimensions();
+
           // Save to cropped videos store
           const croppedVideo = {
             id: Date.now().toString(),
@@ -346,8 +401,8 @@ export default function EditorScreen() {
             endTime: trimEnd,
             duration: data.duration,
             thumbnail: thumbnail || undefined,
-            width: selectedVideo.width,
-            height: selectedVideo.height,
+            width,
+            height,
             aspectRatio: selectedAspectRatio,
             createdAt: Date.now(),
             updatedAt: Date.now(),
@@ -404,161 +459,35 @@ export default function EditorScreen() {
           )}
 
           {/* Top Navigation Bar */}
-          <View
-            style={{
-              position: "absolute",
-              top: insets.top,
-              left: 0,
-              right: 0,
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            {/* Back Button */}
-            <TouchableOpacity
-              onPress={() => {
-                // Step 1: Hide scrubber to trigger cleanup
-                setShowScrubber(false);
-
-                // Step 2: Cleanup players
-                try {
-                  if (player) player.pause();
-                } catch (error) {
-                  // Ignore
-                }
-                try {
-                  if (modalPlayer) modalPlayer.pause();
-                } catch (error) {
-                  // Ignore
-                }
-
-                // Step 3: Navigate after cleanup has time to run
-                setTimeout(() => {
-                  router.push("/(tabs)");
-                }, 300);
-              }}
-              className="w-10 h-10 rounded-full bg-black/50 items-center justify-center"
-            >
-              <Ionicons name="arrow-back" size={24} color="#ffffff" />
-            </TouchableOpacity>
-
-            {/* Edit Text */}
-            <Text className="text-white text-base font-semibold">Edit</Text>
-
-            {/* Checkmark Button - Save */}
-            <TouchableOpacity
-              onPress={handleApplyCrop}
-              disabled={isCropping || duration < CROP_DURATION}
-              className={`w-10 h-10 rounded-full items-center justify-center ${
-                isCropping || duration < CROP_DURATION
-                  ? "bg-gray-600/50"
-                  : "bg-black/50"
-              }`}
-            >
-              {isCropping ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Ionicons name="checkmark" size={24} color="#ffffff" />
-              )}
-            </TouchableOpacity>
-          </View>
+          <EditorTopBar
+            onBack={handleBackNavigation}
+            onSave={handleApplyCrop}
+            isSaving={isCropping}
+            disabled={isCropping || duration < VIDEO.CROP_DURATION_MS}
+            topInset={insets.top}
+          />
 
           {/* Aspect Ratio Selector - Bottom Right */}
-          <View className="absolute bottom-24 right-4 gap-2">
-
-            {getAspectRatios().map((ratio) => (
-              <TouchableOpacity
-                key={ratio.value}
-                onPress={() => setSelectedAspectRatio(ratio.value)}
-                className="bg-black/70 rounded-full px-3 py-2 flex-row items-center gap-2"
-                style={{ minWidth: ratio.value === "original" ? 150 : 80 }}
-              >
-                <Ionicons
-                  name={ratio.icon as any}
-                  size={16}
-                  color={selectedAspectRatio === ratio.value ? "#fff" : "#aaa"}
-                />
-                <Text
-                  className={`text-xs font-semibold ${
-                    selectedAspectRatio === ratio.value
-                      ? "text-white"
-                      : "text-white/60"
-                  }`}
-                  numberOfLines={1}
-                >
-                  {ratio.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <AspectRatioSelector
+            selectedRatio={selectedAspectRatio}
+            onRatioChange={setSelectedAspectRatio}
+            options={getAspectRatios()}
+          />
 
           {/* Preview/Crop Toggle Switch - Bottom Right */}
-          <View className="absolute bottom-8 right-4">
-            <TouchableOpacity
-              onPress={() => setIsPreviewMode(!isPreviewMode)}
-              className="bg-black/70 rounded-full flex-row p-1"
-              style={{ width: 140 }}
-            >
-              {/* Background sliding indicator */}
-              <Animated.View
-                className="absolute top-1 left-1 bottom-1 rounded-full bg-white/30"
-                style={[
-                  {
-                    width: 66,
-                  },
-                  animatedIndicatorStyle,
-                ]}
-              />
+          <PreviewCropToggle
+            isPreviewMode={isPreviewMode}
+            onToggle={() => setIsPreviewMode(!isPreviewMode)}
+            animatedIndicatorStyle={animatedIndicatorStyle}
+          />
 
-              {/* Preview Option */}
-              <View className="flex-1 items-center justify-center py-1.5 z-10">
-                <Text
-                  className={`text-xs font-semibold ${
-                    isPreviewMode ? "text-white" : "text-white/60"
-                  }`}
-                >
-                  Preview
-                </Text>
-              </View>
-
-              {/* Crop Option */}
-              <View className="flex-1 items-center justify-center py-1.5 z-10">
-                <Text
-                  className={`text-xs font-semibold ${
-                    !isPreviewMode ? "text-white" : "text-white/60"
-                  }`}
-                >
-                  Crop
-                </Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          {/* Play/Pause Button Overlay */}
-          <View className="absolute inset-0 items-center justify-center">
-            <TouchableOpacity
-              onPress={handlePlayPause}
-              className="w-16 h-16 rounded-full bg-black/50 items-center justify-center"
-            >
-              <Ionicons
-                name={isPlaying ? "pause" : "play"}
-                size={40}
-                color="#ffffff"
-              />
-            </TouchableOpacity>
-          </View>
-
-          {/* Duration Display - Bottom Left */}
-          <View className="absolute bottom-8 left-4">
-            <View className="bg-black/70 px-3 py-2 rounded-full">
-              <Text className="text-white text-xs font-semibold">
-                {formatDuration(currentTime)} / {formatDuration(duration)}
-              </Text>
-            </View>
-          </View>
+          {/* Video Player Controls */}
+          <VideoPlayerControls
+            isPlaying={isPlaying}
+            onTogglePlay={handlePlayPause}
+            currentTime={formatDuration(currentTime)}
+            totalDuration={formatDuration(duration)}
+          />
         </View>
 
         {/* Bottom Controls - Animated scrubber */}
@@ -575,7 +504,7 @@ export default function EditorScreen() {
                   setTrimStart(start);
                   setTrimEnd(end);
                 }}
-                trimDuration={CROP_DURATION}
+                trimDuration={VIDEO.CROP_DURATION_MS}
               />
             )}
           </View>

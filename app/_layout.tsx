@@ -22,11 +22,10 @@ export const unstable_settings = {
 };
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
+  // Force dark mode - this app is designed for dark theme only
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <ThemeProvider value={DarkTheme}>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="onboarding" />
@@ -36,7 +35,7 @@ export default function RootLayout() {
           <Stack.Screen name="export" options={{ title: 'Export' }} />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack>
-        <StatusBar style="light" />
+        <StatusBar style="light" backgroundColor="#000000" translucent={false} />
       </ThemeProvider>
     </QueryClientProvider>
   );

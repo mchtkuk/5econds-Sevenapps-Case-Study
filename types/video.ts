@@ -8,7 +8,6 @@ export interface VideoItem {
   width?: number;
   height?: number;
   thumbnail?: string;
-  error?: string; // For validation errors
 }
 
 export type AspectRatio = 'original' | '9:16';

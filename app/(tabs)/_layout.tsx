@@ -4,6 +4,8 @@ import React from "react";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { colors } from "@/constants/theme";
+import { DIMENSIONS } from "@/constants/app";
 import { View } from "react-native";
 
 export default function TabLayout() {
@@ -12,14 +14,14 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: "#fff",
-        tabBarInactiveTintColor: "#666",
+        tabBarActiveTintColor: colors.white,
+        tabBarInactiveTintColor: colors.gray600,
         tabBarStyle: {
-          backgroundColor: "#000",
-          borderTopColor: "#333",
+          backgroundColor: colors.black,
+          borderTopColor: colors.border,
           borderTopWidth: 1,
-          height: 70,
-          paddingBottom: 8,
+          height: DIMENSIONS.TAB_BAR_HEIGHT,
+          paddingBottom: DIMENSIONS.TAB_BAR_PADDING,
           paddingTop: 4,
         },
         headerShown: false,
@@ -31,7 +33,7 @@ export default function TabLayout() {
         options={{
           title: "Clips",
           tabBarIcon: ({ color }) => (
-            <Ionicons name="play-circle" size={24} color={color} />
+            <Ionicons name="play-circle" size={DIMENSIONS.ICON_SIZE_MEDIUM} color={color} />
           ),
         }}
       />
@@ -41,7 +43,7 @@ export default function TabLayout() {
           title: "Create",
           tabBarIcon: ({ color }) => (
             <View className="h-24 w-24 -mt-8 justify-center items-center">
-              <Ionicons name="add-circle" size={42.5} color="#ffffff" />
+              <Ionicons name="add-circle" size={DIMENSIONS.ICON_SIZE_XLARGE} color={colors.white} />
             </View>
           ),
         }}
@@ -51,7 +53,7 @@ export default function TabLayout() {
         options={{
           title: "Favorites",
           tabBarIcon: ({ color }) => (
-            <Ionicons name="heart" size={24} color={color} />
+            <Ionicons name="heart" size={DIMENSIONS.ICON_SIZE_MEDIUM} color={color} />
           ),
         }}
       />

@@ -4,6 +4,7 @@ import {
   recordVideo,
   requestPermissions,
 } from "@/utils/video-utils";
+import { isVideoValidationError, getUserErrorMessage } from "@/utils/errors";
 import { ErrorModal } from "@/components/error-modal";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
@@ -54,14 +55,8 @@ export default function AddScreen() {
       }
 
       const video = await pickVideoFromGallery();
-      console.log("Picked video:", video);
 
-      if (video?.error) {
-        // Video validation failed
-        setLoading(false);
-        setErrorMessage("Please select a video that is 2 minutes or shorter");
-        setShowErrorModal(true);
-      } else if (video) {
+      if (video) {
         // Valid video
         addVideo(video);
         setSelectedVideo(video);
@@ -73,10 +68,16 @@ export default function AddScreen() {
         router.push("/(tabs)");
       }
     } catch (error: any) {
-      console.error("Import video error:", error);
-      setLoading(false);
-      Alert.alert("Error", "Failed to pick video");
-      router.push("/(tabs)");
+      if (isVideoValidationError(error)) {
+        // Video validation failed - show user-friendly error
+        setLoading(false);
+        setErrorMessage(getUserErrorMessage(error));
+        setShowErrorModal(true);
+      } else {
+        setLoading(false);
+        Alert.alert("Error", "Failed to pick video");
+        router.push("/(tabs)");
+      }
     }
   };
 
@@ -98,14 +99,8 @@ export default function AddScreen() {
       }
 
       const video = await recordVideo();
-      console.log("Recorded video:", video);
 
-      if (video?.error) {
-        // Video validation failed
-        setLoading(false);
-        setErrorMessage("Please record a video that is 2 minutes or shorter");
-        setShowErrorModal(true);
-      } else if (video) {
+      if (video) {
         // Valid video
         addVideo(video);
         setSelectedVideo(video);
@@ -117,10 +112,16 @@ export default function AddScreen() {
         router.push("/(tabs)");
       }
     } catch (error: any) {
-      console.error("Record video error:", error);
-      setLoading(false);
-      Alert.alert("Error", "Failed to record video");
-      router.push("/(tabs)");
+      if (isVideoValidationError(error)) {
+        // Video validation failed - show user-friendly error
+        setLoading(false);
+        setErrorMessage(getUserErrorMessage(error));
+        setShowErrorModal(true);
+      } else {
+        setLoading(false);
+        Alert.alert("Error", "Failed to record video");
+        router.push("/(tabs)");
+      }
     }
   };
 

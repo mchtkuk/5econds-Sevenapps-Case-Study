@@ -1,12 +1,13 @@
+import { ErrorModal } from "@/components/error-modal";
 import { FolderView } from "@/components/folder-view";
 import { ReelsVideoCard } from "@/components/reels-video-card";
-import { ErrorModal } from "@/components/error-modal";
 import { useVideoStore } from "@/store/video-store";
+import { getUserErrorMessage, isVideoValidationError } from "@/utils/errors";
 import {
+  downloadVideoToGallery,
   pickVideoFromGallery,
   recordVideo,
   requestPermissions,
-  downloadVideoToGallery,
   shareVideo,
 } from "@/utils/video-utils";
 import { Ionicons } from "@expo/vector-icons";
@@ -27,7 +28,8 @@ import {
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const { height: SCREEN_HEIGHT } = Dimensions.get("screen"); // Use 'screen' for full height including status bar
+const { height: WINDOW_HEIGHT } = Dimensions.get("window"); // Use 'window' for actual viewport
+const SCREEN_HEIGHT = WINDOW_HEIGHT; // Viewport height for reels
 
 type ViewMode = "reels" | "folder";
 
@@ -75,19 +77,17 @@ export default function HomeScreen() {
   useFocusEffect(
     React.useCallback(() => {
       // Screen is focused - clear any cached images/videos
-      console.log('[HomeScreen] Screen focused - clearing cache');
-      if (Image.clearMemoryCache) {
-        Image.clearMemoryCache();
+      if ((Image as any).clearMemoryCache) {
+        (Image as any).clearMemoryCache();
       }
-      if (Image.clearDiskCache) {
-        Image.clearDiskCache();
+      if ((Image as any).clearDiskCache) {
+        (Image as any).clearDiskCache();
       }
       setIsScreenFocused(true);
 
       return () => {
         // Screen loses focus - pause all videos
         setIsScreenFocused(false);
-        console.log('[HomeScreen] Screen unfocused');
       };
     }, [])
   );
@@ -106,19 +106,20 @@ export default function HomeScreen() {
     setLoading(true);
     try {
       const video = await pickVideoFromGallery();
-      if (video?.error) {
-        // Video validation failed
-        setErrorMessage("Please select a video that is 2 minutes or shorter");
-        setShowErrorModal(true);
-      } else if (video) {
+      if (video) {
         // Valid video - add to temporary videos list and navigate to editor for cropping
         addVideo(video);
         setSelectedVideo(video);
         router.push("/editor");
       }
     } catch (error: any) {
-      console.log('Import error:', error);
-      Alert.alert("Error", "Failed to pick video");
+      if (isVideoValidationError(error)) {
+        // Video validation failed - show user-friendly error
+        setErrorMessage(getUserErrorMessage(error));
+        setShowErrorModal(true);
+      } else {
+        Alert.alert("Error", "Failed to pick video");
+      }
     } finally {
       setLoading(false);
     }
@@ -128,19 +129,20 @@ export default function HomeScreen() {
     setLoading(true);
     try {
       const video = await recordVideo();
-      if (video?.error) {
-        // Video validation failed
-        setErrorMessage("Please record a video that is 2 minutes or shorter");
-        setShowErrorModal(true);
-      } else if (video) {
+      if (video) {
         // Valid video - add to temporary videos list and navigate to editor for cropping
         addVideo(video);
         setSelectedVideo(video);
         router.push("/editor");
       }
     } catch (error: any) {
-      console.log('Record error:', error);
-      Alert.alert("Error", "Failed to record video");
+      if (isVideoValidationError(error)) {
+        // Video validation failed - show user-friendly error
+        setErrorMessage(getUserErrorMessage(error));
+        setShowErrorModal(true);
+      } else {
+        Alert.alert("Error", "Failed to record video");
+      }
     } finally {
       setLoading(false);
     }
@@ -191,7 +193,10 @@ export default function HomeScreen() {
 
     const result = await downloadVideoToGallery(video.uri, video.name);
     if (result.success) {
-      Alert.alert("Success", "Video saved to your gallery in the '5econds' album!");
+      Alert.alert(
+        "Success",
+        "Video saved to your gallery in the '5econds' album!"
+      );
     } else {
       Alert.alert("Error", result.error || "Failed to save video to gallery");
     }
@@ -242,7 +247,10 @@ export default function HomeScreen() {
         >
           <View className="flex-row justify-between items-start">
             <View>
-              <Text className="text-3xl font-bold text-white">5econds</Text>
+              <Image
+                source={require("../../assets/images/seconds-logo-transparent.png")}
+                className="w-36 h-8 left-[-14]"
+              />
             </View>
           </View>
         </LinearGradient>
@@ -310,7 +318,10 @@ export default function HomeScreen() {
       >
         <View className="flex-row justify-between items-start">
           <View>
-            <Text className="text-3xl font-bold text-white">5econds</Text>
+            <Image
+              source={require("../../assets/images/seconds-logo-transparent.png")}
+              className="w-36 h-8 left-[-14]"
+            />
             <Text className="text-sm text-white/80 mt-1">
               {croppedVideos.length} clip{croppedVideos.length !== 1 ? "s" : ""}
             </Text>

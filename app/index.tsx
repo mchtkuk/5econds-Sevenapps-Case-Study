@@ -22,7 +22,6 @@ export default function Index() {
         router.replace("/onboarding");
       }
     } catch (error) {
-      console.error("Error checking onboarding status:", error);
       router.replace("/onboarding");
     }
   };

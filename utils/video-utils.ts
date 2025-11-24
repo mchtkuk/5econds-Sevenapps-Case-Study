@@ -1,135 +1,82 @@
-import * as MediaLibrary from 'expo-media-library';
-import * as ImagePicker from 'expo-image-picker';
-import * as VideoThumbnails from 'expo-video-thumbnails';
-import * as Sharing from 'expo-sharing';
-import { File } from 'expo-file-system';
-import { VideoItem } from '../types/video';
+import { File } from "expo-file-system";
+import * as ImagePicker from "expo-image-picker";
+import * as MediaLibrary from "expo-media-library";
+import * as Sharing from "expo-sharing";
+import { VIDEO } from "../constants/app";
+import { processVideoAsset, generateThumbnail as generateVideoThumbnail } from "../services/video-service";
+import { VideoItem } from "../types/video";
+
+// Re-export generateThumbnail for backward compatibility
+export const generateThumbnail = generateVideoThumbnail;
 
 export const requestPermissions = async () => {
   const { status: mediaStatus } = await MediaLibrary.requestPermissionsAsync();
-  const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
+  const { status: cameraStatus } =
+    await ImagePicker.requestCameraPermissionsAsync();
 
   return {
-    mediaLibrary: mediaStatus === 'granted',
-    camera: cameraStatus === 'granted',
+    mediaLibrary: mediaStatus === "granted",
+    camera: cameraStatus === "granted",
   };
 };
 
+/**
+ * Pick a video from the device gallery
+ * @throws {VideoValidationError} if video duration exceeds maximum
+ * @throws {VideoProcessingError} if thumbnail generation fails
+ * @returns VideoItem or null if user cancelled
+ */
 export const pickVideoFromGallery = async (): Promise<VideoItem | null> => {
-  try {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['videos'],
-      allowsEditing: false,
-      quality: 1,
-      videoExportPreset: ImagePicker.VideoExportPreset.H264_1920x1080, // Force H.264 codec
-      videoMaxDuration: 120, // Limit to 2 minutes
-    });
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ["videos"],
+    allowsEditing: false,
+    quality: 1,
+    videoExportPreset: ImagePicker.VideoExportPreset.H264_1920x1080, // Force H.264 codec
+    videoMaxDuration: VIDEO.MAX_DURATION_SECONDS,
+  });
 
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-
-      // Validate duration - must be 2 minutes or less
-      const durationInSeconds = (asset.duration || 0) / 1000;
-      if (durationInSeconds > 120) {
-        // Return special error object instead of throwing
-        return {
-          id: 'ERROR',
-          uri: '',
-          duration: 0,
-          filename: 'VIDEO_TOO_LONG',
-          error: 'Video must be 2 minutes or less'
-        } as any;
-      }
-
-      // Generate thumbnail
-      const thumbnail = await generateThumbnail(asset.uri);
-
-      return {
-        id: Date.now().toString(),
-        uri: asset.uri,
-        duration: asset.duration || 0,
-        filename: asset.fileName || `video_${Date.now()}.mp4`,
-        width: asset.width,
-        height: asset.height,
-        thumbnail: thumbnail || undefined,
-      };
-    }
-
-    return null;
-  } catch (error) {
-    console.error('Error picking video:', error);
-    return null;
+  if (!result.canceled && result.assets[0]) {
+    const asset = result.assets[0];
+    return await processVideoAsset(asset);
   }
+
+  return null;
 };
 
+/**
+ * Record a video using the device camera
+ * @throws {VideoValidationError} if video duration exceeds maximum
+ * @throws {VideoProcessingError} if thumbnail generation fails
+ * @returns VideoItem or null if user cancelled
+ */
 export const recordVideo = async (): Promise<VideoItem | null> => {
-  try {
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['videos'],
-      allowsEditing: false,
-      quality: 1,
-      videoExportPreset: ImagePicker.VideoExportPreset.H264_1920x1080, // Force H.264 codec
-      videoMaxDuration: 120, // Limit to 2 minutes
-    });
+  const result = await ImagePicker.launchCameraAsync({
+    mediaTypes: ["videos"],
+    allowsEditing: false,
+    quality: 1,
+    videoExportPreset: ImagePicker.VideoExportPreset.H264_1920x1080, // Force H.264 codec
+    videoMaxDuration: VIDEO.MAX_DURATION_SECONDS,
+  });
 
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-
-      // Validate duration - must be 2 minutes or less
-      const durationInSeconds = (asset.duration || 0) / 1000;
-      if (durationInSeconds > 120) {
-        // Return special error object instead of throwing
-        return {
-          id: 'ERROR',
-          uri: '',
-          duration: 0,
-          filename: 'VIDEO_TOO_LONG',
-          error: 'Video must be 2 minutes or less'
-        } as any;
-      }
-
-      // Generate thumbnail
-      const thumbnail = await generateThumbnail(asset.uri);
-
-      return {
-        id: Date.now().toString(),
-        uri: asset.uri,
-        duration: asset.duration || 0,
-        filename: asset.fileName || `video_${Date.now()}.mp4`,
-        width: asset.width,
-        height: asset.height,
-        thumbnail: thumbnail || undefined,
-      };
-    }
-
-    return null;
-  } catch (error) {
-    console.error('Error recording video:', error);
-    return null;
+  if (!result.canceled && result.assets[0]) {
+    const asset = result.assets[0];
+    return await processVideoAsset(asset);
   }
+
+  return null;
 };
 
-export const generateThumbnail = async (videoUri: string): Promise<string | null> => {
-  try {
-    const { uri } = await VideoThumbnails.getThumbnailAsync(videoUri, {
-      time: 0,
-    });
-    return uri;
-  } catch (error) {
-    console.error('Error generating thumbnail:', error);
-    return null;
-  }
-};
-
-export const loadVideosFromLibrary = async (limit: number = 20): Promise<VideoItem[]> => {
+export const loadVideosFromLibrary = async (
+  limit: number = 20
+): Promise<VideoItem[]> => {
   try {
     const { status } = await MediaLibrary.getPermissionsAsync();
-    if (status !== 'granted') {
+    if (status !== "granted") {
       return [];
     }
 
     const media = await MediaLibrary.getAssetsAsync({
-      mediaType: 'video',
+      mediaType: "video",
       first: limit,
       sortBy: [[MediaLibrary.SortBy.creationTime, false]],
     });
@@ -153,7 +100,7 @@ export const loadVideosFromLibrary = async (limit: number = 20): Promise<VideoIt
 
     return videos;
   } catch (error) {
-    console.error('Error loading videos from library:', error);
+    console.error("Error loading videos from library:", error);
     return [];
   }
 };
@@ -165,20 +112,24 @@ export const formatDuration = (milliseconds: number): string => {
   const seconds = totalSeconds % 60;
 
   if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(
+      seconds
+    ).padStart(2, "0")}`;
   }
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 };
 
-export const getQualitySettings = (quality: 'low' | 'medium' | 'high' | 'original') => {
+export const getQualitySettings = (
+  quality: "low" | "medium" | "high" | "original"
+) => {
   switch (quality) {
-    case 'low':
+    case "low":
       return { width: 640, height: 480, bitrate: 500000 };
-    case 'medium':
+    case "medium":
       return { width: 1280, height: 720, bitrate: 2000000 };
-    case 'high':
+    case "high":
       return { width: 1920, height: 1080, bitrate: 5000000 };
-    case 'original':
+    case "original":
       return null; // Use original settings
     default:
       return { width: 1280, height: 720, bitrate: 2000000 };
@@ -199,41 +150,37 @@ export const downloadVideoToGallery = async (
     // Request permission to access media library
     const { status } = await MediaLibrary.requestPermissionsAsync();
 
-    if (status !== 'granted') {
+    if (status !== "granted") {
       return {
         success: false,
-        error: 'Permission to access media library was denied',
+        error: "Permission to access media library was denied",
       };
     }
 
-    // Check if the file exists using new FileSystem API
     const file = new File(videoUri);
     if (!file.exists) {
       return {
         success: false,
-        error: 'Video file not found',
+        error: "Video file not found",
       };
     }
 
-    // Save to media library
     const asset = await MediaLibrary.createAssetAsync(videoUri);
 
-    // Optionally, create an album and add the asset to it
-    const albumName = '5econds';
-    const album = await MediaLibrary.getAlbumAsync(albumName);
+    const album = await MediaLibrary.getAlbumAsync(VIDEO.ALBUM_NAME);
 
     if (album) {
       await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
     } else {
-      await MediaLibrary.createAlbumAsync(albumName, asset, false);
+      await MediaLibrary.createAlbumAsync(VIDEO.ALBUM_NAME, asset, false);
     }
 
     return { success: true };
   } catch (error) {
-    console.error('Error downloading video to gallery:', error);
+    console.error("Error downloading video to gallery:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
+      error: error instanceof Error ? error.message : "Unknown error occurred",
     };
   }
 };
@@ -247,38 +194,36 @@ export const shareVideo = async (
   videoUri: string
 ): Promise<{ success: boolean; error?: string }> => {
   try {
-    // Check if sharing is available on this device
     const isAvailable = await Sharing.isAvailableAsync();
 
     if (!isAvailable) {
       return {
         success: false,
-        error: 'Sharing is not available on this device',
+        error: "Sharing is not available on this device",
       };
     }
 
-    // Check if the file exists using new FileSystem API
     const file = new File(videoUri);
     if (!file.exists) {
       return {
         success: false,
-        error: 'Video file not found',
+        error: "Video file not found",
       };
     }
 
     // Share the video
     await Sharing.shareAsync(videoUri, {
-      mimeType: 'video/mp4',
-      dialogTitle: 'Share your video',
-      UTI: 'public.movie', // iOS UTI for video files
+      mimeType: "video/mp4",
+      dialogTitle: "Share your video",
+      UTI: "public.movie",
     });
 
     return { success: true };
   } catch (error) {
-    console.error('Error sharing video:', error);
+    console.error("Error sharing video:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
+      error: error instanceof Error ? error.message : "Unknown error occurred",
     };
   }
 };
