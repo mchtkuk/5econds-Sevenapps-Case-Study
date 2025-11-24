@@ -181,7 +181,7 @@ VidCut/
 
    ```bash
    git clone <repository-url>
-   cd VidCut
+   cd 5econds-Sevenapps-Case-Study
    ```
 
 2. **Install dependencies**
