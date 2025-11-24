@@ -6,10 +6,10 @@ A modern, high-performance React Native video editor that lets you create and sh
 
 <div align="center">
 
-| Video Cropping | Favorites | Share, Download & Edit |
-|:---:|:---:|:---:|
-| ![Video Cropping Demo](assets/readme/cropping.gif) | ![Favorites Demo](assets/readme/favorites.gif) | ![Share & Download Demo](assets/readme/share.gif) |
-| *Select any 5-second segment* | *Mark your favorite clips* | *Share, save & edit metadata* |
+|                   Video Cropping                   |                   Favorites                   |              Share, Download & Edit               |
+| :------------------------------------------------: | :-------------------------------------------: | :-----------------------------------------------: |
+| ![Video Cropping Demo](assets/readme/cropping.gif) | ![Favorites Demo](assets/readme/favorite.gif) | ![Share & Download Demo](assets/readme/share.gif) |
+|           _Select any 5-second segment_            |          _Mark your favorite clips_           |           _Share, save & edit metadata_           |
 
 </div>
 
