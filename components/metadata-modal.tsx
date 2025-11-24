@@ -1,12 +1,13 @@
 import { AspectRatio } from "@/types/video";
-import { formatDuration } from "@/utils/video-utils";
 import { validateVideoMetadata } from "@/utils/validation";
+import { formatDuration } from "@/utils/video-utils";
 import { Ionicons } from "@expo/vector-icons";
-import { VideoPlayer, VideoView } from "expo-video";
-import React, { useState } from "react";
+import { VideoView, useVideoPlayer } from "expo-video";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
+  Keyboard,
   Modal,
   ScrollView,
   Text,
@@ -20,7 +21,7 @@ interface MetadataModalProps {
   visible: boolean;
   onClose: () => void;
   onSave: () => void;
-  videoPlayer: VideoPlayer;
+  videoUri: string;
   videoName: string;
   videoDescription: string;
   onNameChange: (text: string) => void;
@@ -35,7 +36,7 @@ export function MetadataModal({
   visible,
   onClose,
   onSave,
-  videoPlayer,
+  videoUri,
   videoName,
   videoDescription,
   onNameChange,
@@ -50,8 +51,91 @@ export function MetadataModal({
     description?: string;
   }>({});
 
+  const [isReady, setIsReady] = useState(false);
+
+  // Initialize Player
+  const player = useVideoPlayer(visible ? videoUri : "", (p) => {
+    p.loop = false; // We handle looping manually for precision
+    p.muted = false;
+    p.volume = 1.0;
+  });
+
+  // --- 🔄 BULLETPROOF LOOP LOGIC ---
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    let startTimer: ReturnType<typeof setTimeout>;
+    let endListener: any;
+
+    const performLoop = () => {
+      try {
+        if (!player) return;
+        // 1. Seek to Start
+        player.currentTime = trimStart / 1000;
+        // 2. Force Play
+        player.play();
+      } catch (e) {
+        // Ignore seek errors
+      }
+    };
+
+    if (visible && player) {
+      // 1. Wait for Modal Animation (450ms)
+      startTimer = setTimeout(() => {
+        setIsReady(true);
+
+        // Initial Play
+        performLoop();
+
+        // 2. Event Listener: Catches if video hits actual EOF (End of File)
+        endListener = player.addListener("playToEnd", () => {
+          console.log("[Modal] Hit EOF, looping...");
+          performLoop();
+        });
+
+        // 3. Interval: Catches if video passes 'trimEnd' (Custom Cut)
+        interval = setInterval(() => {
+          try {
+            const currentMs = player.currentTime * 1000;
+            const isPlaying = player.playing;
+
+            // Condition A: Passed the Trim End
+            if (currentMs >= trimEnd) {
+              console.log("[Modal] Passed Trim End, looping...");
+              performLoop();
+            }
+
+            // Condition B: Stuck Check (Paused, but not at start, and not playing)
+            // If user didn't pause it, but it stopped on its own -> Force Resume
+            else if (
+              !isPlaying &&
+              currentMs > trimStart + 100 &&
+              currentMs < trimEnd - 100
+            ) {
+              console.log("[Modal] Player stuck, resuming...");
+              player.play();
+            }
+          } catch (e) {
+            clearInterval(interval);
+          }
+        }, 150);
+      }, 450);
+    } else {
+      setIsReady(false);
+    }
+
+    return () => {
+      clearTimeout(startTimer);
+      clearInterval(interval);
+      if (endListener) endListener.remove();
+      // Safe cleanup
+      try {
+        if (player) player.pause();
+      } catch (error) {}
+    };
+  }, [visible, player, trimStart, trimEnd]);
+
+  // --- SAVE LOGIC ---
   const handleSave = () => {
-    // Validate before saving
     const validation = validateVideoMetadata({
       name: videoName,
       description: videoDescription,
@@ -61,68 +145,51 @@ export function MetadataModal({
       setValidationErrors(validation.errors || {});
       return;
     }
-
-    // Clear errors and proceed with save
+    Keyboard.dismiss();
     setValidationErrors({});
     onSave();
   };
 
   const handleNameChange = (text: string) => {
     onNameChange(text);
-    // Clear error when user starts typing
-    if (validationErrors.name) {
+    if (validationErrors.name)
       setValidationErrors((prev) => ({ ...prev, name: undefined }));
-    }
   };
 
   const handleDescriptionChange = (text: string) => {
     onDescriptionChange(text);
-    // Clear error when user starts typing
-    if (validationErrors.description) {
+    if (validationErrors.description)
       setValidationErrors((prev) => ({ ...prev, description: undefined }));
-    }
   };
 
-  const getContentFit = () => {
-    if (aspectRatio === "original") {
-      return "contain" as const;
-    }
-    return "cover" as const;
-  };
+  const getContentFit = () =>
+    aspectRatio === "original" ? "contain" : "cover";
 
-  // Get video container dimensions based on aspect ratio
-  const getVideoContainerStyle = () => {
+  const videoContainerStyle = useMemo(() => {
     const screenWidth = Dimensions.get("window").width;
-
     if (aspectRatio === "9:16") {
-      // For 9:16, make container narrower to show the crop
-      const containerWidth = Math.min(screenWidth * 0.5, 200); // Max 200px wide
-      const containerHeight = (containerWidth * 16) / 9;
-
+      const w = Math.min(screenWidth * 0.5, 200);
       return {
-        width: containerWidth,
-        height: containerHeight,
+        width: w,
+        height: (w * 16) / 9,
         alignSelf: "center" as const,
         backgroundColor: "#000",
+        borderRadius: 12,
+        overflow: "hidden" as const,
       };
     }
+    return { width: "100%" as const, height: 240, backgroundColor: "#000" };
+  }, [aspectRatio]);
 
-    // Original: full width, fixed height
-    return {
-      width: "100%" as const,
-      height: 240,
-      backgroundColor: "#000",
-    };
-  };
   return (
     <Modal
       visible={visible}
       animationType="slide"
       onRequestClose={onClose}
+      presentationStyle="pageSheet"
     >
       <SafeAreaView className="flex-1 bg-black" edges={["top"]}>
         <View className="flex-1 bg-instagram-surface">
-          {/* Header */}
           <View className="flex-row items-center justify-between p-4 border-b border-gray-800">
             <TouchableOpacity onPress={onClose} className="p-2">
               <Ionicons name="close" size={24} color="#fff" />
@@ -138,24 +205,42 @@ export function MetadataModal({
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Video Preview */}
-            <View style={{ width: "100%", minHeight: 240, backgroundColor: "#000", justifyContent: "center", alignItems: "center", paddingVertical: 20 }}>
-              <View style={getVideoContainerStyle()}>
-                <VideoView
-                  player={videoPlayer}
-                  style={{ width: "100%", height: "100%" }}
-                  contentFit={getContentFit()}
-                  nativeControls={false}
-                  allowsPictureInPicture={false}
-                />
-                {/* Duration Badge */}
+            <View
+              style={{
+                width: "100%",
+                minHeight: 240,
+                backgroundColor: "#000",
+                justifyContent: "center",
+                alignItems: "center",
+                paddingVertical: 20,
+              }}
+            >
+              <View style={videoContainerStyle}>
+                {/* Wait for 'isReady' (450ms) to ensure Modal animation 
+                   doesn't break the native video layer attachment.
+                */}
+                {visible && isReady && player ? (
+                  <VideoView
+                    key={`modal-player-${aspectRatio}`}
+                    player={player}
+                    style={{ width: "100%", height: "100%" }}
+                    contentFit={getContentFit()}
+                    nativeControls={false}
+                    allowsPictureInPicture={false}
+                  />
+                ) : (
+                  <View className="flex-1 justify-center items-center bg-gray-900">
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  </View>
+                )}
+
                 <View className="absolute bottom-2 right-2 bg-black/70 px-2 py-1 rounded-full">
                   <Text className="text-white text-xs font-semibold">
                     {formatDuration(trimEnd - trimStart)}
                   </Text>
                 </View>
               </View>
-              {/* Aspect Ratio Label */}
+
               {aspectRatio === "9:16" && (
                 <View className="absolute top-3 left-3 bg-black/70 px-2 py-1 rounded-full">
                   <Text className="text-white text-xs font-semibold">9:16</Text>
@@ -163,9 +248,7 @@ export function MetadataModal({
               )}
             </View>
 
-            {/* Form Content */}
             <View className="p-5">
-              {/* Name Input */}
               <View className="mb-4">
                 <Text className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">
                   Title
@@ -187,16 +270,20 @@ export function MetadataModal({
                     </Text>
                   </View>
                 )}
+                <Text className="text-gray-500 text-xs mt-1 ml-1">
+                  Min 3 characters
+                </Text>
               </View>
 
-              {/* Description Input */}
               <View className="mb-4">
                 <Text className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">
                   Description
                 </Text>
                 <TextInput
                   className={`bg-instagram-input border rounded-xl p-4 text-base text-white min-h-[120px] ${
-                    validationErrors.description ? "border-red-500" : "border-gray-700"
+                    validationErrors.description
+                      ? "border-red-500"
+                      : "border-gray-700"
                   }`}
                   placeholder="What makes this moment special?"
                   placeholderTextColor="#666"
@@ -214,9 +301,11 @@ export function MetadataModal({
                     </Text>
                   </View>
                 )}
+                <Text className="text-gray-500 text-xs mt-1 ml-1">
+                  Min 10 characters
+                </Text>
               </View>
 
-              {/* Action Buttons */}
               <View className="flex-row gap-3 mt-2 mb-6">
                 <TouchableOpacity
                   className="flex-1 p-4 rounded-xl items-center bg-gray-800"
@@ -235,8 +324,14 @@ export function MetadataModal({
                     <ActivityIndicator color="#ffffff" size="small" />
                   ) : (
                     <>
-                      <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                      <Text className="text-white font-semibold">Save Clip</Text>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={20}
+                        color="#fff"
+                      />
+                      <Text className="text-white font-semibold">
+                        Save Clip
+                      </Text>
                     </>
                   )}
                 </TouchableOpacity>

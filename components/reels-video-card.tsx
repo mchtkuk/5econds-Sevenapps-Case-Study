@@ -2,7 +2,7 @@ import { CroppedVideo } from "@/types/video";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { VideoView, useVideoPlayer } from "expo-video";
-import React, { memo, useEffect, useState } from "react";
+import React, { memo, useEffect, useRef, useState } from "react";
 import { Dimensions, Text, TouchableOpacity, View } from "react-native";
 
 interface ReelsVideoCardProps {
@@ -15,7 +15,7 @@ interface ReelsVideoCardProps {
   onShare?: () => void;
 }
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window"); // Use 'window' for actual viewport
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 const ReelsVideoCardComponent: React.FC<ReelsVideoCardProps> = ({
   video,
@@ -28,73 +28,95 @@ const ReelsVideoCardComponent: React.FC<ReelsVideoCardProps> = ({
 }) => {
   const [isPaused, setIsPaused] = useState(false);
 
-  // Create video player
+  // Track mount state to prevent setting state on unmounted components
+  const isMounted = useRef(true);
+
+  // Initialize player
   const player = useVideoPlayer(video.uri, (player) => {
     player.loop = true;
     player.muted = false;
   });
 
-  // Determine content fit based on actual video dimensions
-  const getContentFit = () => {
-    // Check actual video dimensions
-    if (video.width && video.height) {
-      const aspectRatio = video.width / video.height;
-      // If portrait (height > width), use cover to fill screen without black bars
-      // If landscape (width > height), use contain to show full video
-      return aspectRatio < 1 ? "cover" as const : "contain" as const;
-    }
-
-    // Fallback: use cover for unknown dimensions to avoid black bars
-    return "cover" as const;
-  };
-
+  // 1. CLEANUP LOGIC (The most important part for memory leaks)
   useEffect(() => {
-    console.log(`[ReelsVideoCard] Mounted for video: ${video.id}`);
+    isMounted.current = true;
+    console.log(`[ReelsVideoCard] Mounted: ${video.id}`);
 
     return () => {
-      console.log(`[ReelsVideoCard] Unmounting video: ${video.id}`);
-      // Cleanup player when component unmounts
-      try {
-        if (player) {
+      console.log(`[ReelsVideoCard] Unmounting: ${video.id}`);
+      isMounted.current = false;
+
+      if (player) {
+        try {
           player.pause();
-          player.replace(null); // Release video resource
+          // FIX: Use replaceAsync (Async) instead of replace (Sync)
+          // This prevents the UI thread from freezing/crashing during fast scrolling
+          player.replaceAsync(null).catch((err) => {
+            // Ignore errors if player is already destroyed
+            // console.warn("Player cleanup error:", err);
+          });
+        } catch (error) {
+          // Ignore
         }
-      } catch (error) {
-        // Ignore - player may already be destroyed
       }
     };
   }, [player, video.id]);
 
+  // 2. PLAYBACK LOGIC
   useEffect(() => {
     if (!player) return;
 
-    try {
-      if (isActive && !isPaused) {
-        player.play();
-      } else {
-        player.pause();
+    // Use a small timeout to let the UI settle before playing/pausing
+    // This helps performance when swiping quickly
+    const timer = setTimeout(() => {
+      if (!isMounted.current) return;
+
+      try {
+        if (isActive && !isPaused) {
+          player.play();
+        } else {
+          player.pause();
+        }
+      } catch (error) {
+        // Player might be destroyed, ignore
       }
-    } catch (error) {
-      // Ignore playback errors - player may be destroyed
-    }
+    }, 50);
+
+    return () => clearTimeout(timer);
   }, [isActive, isPaused, player]);
 
-  const handlePressIn = () => {
-    setIsPaused(true);
+  // Determine content fit based on actual video dimensions
+  const getContentFit = () => {
+    if (video.width && video.height) {
+      const videoRatio = video.width / video.height;
+
+      // 9:16 ratio is 0.5625
+      // 4:5 ratio is 0.8
+      // 1:1 ratio is 1.0
+
+      // FIX: If the video is "wider" than a very tall rectangle (approx 2:3 or 0.66),
+      // we must CONTAIN it to prevent side cropping.
+      // This handles 4:5 (0.8), 1:1 (1.0), and Landscape (1.77) correctly.
+      if (videoRatio > 0.6) {
+        return "contain";
+      }
+
+      // Only use COVER for very tall videos (like 9:16) to fill the screen
+      // and avoid tiny black bars on varying phone screen sizes.
+      return "cover";
+    }
+
+    // Default safe fallback
+    return "contain";
   };
 
-  const handlePressOut = () => {
-    setIsPaused(false);
-  };
+  const handlePressIn = () => setIsPaused(true);
+  const handlePressOut = () => setIsPaused(false);
 
-  // Don't render if video URI is invalid
   if (!video || !video.uri) {
     return (
       <View
-        style={{
-          width: SCREEN_WIDTH,
-          height: SCREEN_HEIGHT,
-        }}
+        style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
         className="relative bg-black justify-center items-center"
       >
         <Text className="text-white/70">No video available</Text>
@@ -104,39 +126,27 @@ const ReelsVideoCardComponent: React.FC<ReelsVideoCardProps> = ({
 
   return (
     <View
-      style={{
-        width: SCREEN_WIDTH,
-        height: SCREEN_HEIGHT,
-      }}
+      style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
       className="relative bg-black"
-      accessible={false}
-      accessibilityElementsHidden={true}
-      importantForAccessibility="no-hide-descendants"
     >
-      {/* Video Player */}
       <TouchableOpacity
         activeOpacity={1}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         className="flex-1"
-        accessible={false}
-        importantForAccessibility="no-hide-descendants"
       >
         <VideoView
           player={player}
-          style={{
-            width: SCREEN_WIDTH,
-            height: SCREEN_HEIGHT,
-          }}
+          style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
           contentFit={getContentFit()}
           nativeControls={false}
           allowsPictureInPicture={false}
-          accessibilityElementsHidden={true}
-          importantForAccessibility="no-hide-descendants"
+          // Optimization: Disable PIP automatically
+          startsPictureInPictureAutomatically={false}
         />
       </TouchableOpacity>
 
-      {/* Bottom Left: Video Title & Description */}
+      {/* Overlay Gradient */}
       <LinearGradient
         colors={["transparent", "rgba(0,0,0,0.8)"]}
         style={{
@@ -144,13 +154,11 @@ const ReelsVideoCardComponent: React.FC<ReelsVideoCardProps> = ({
           bottom: 0,
           left: 0,
           right: 0,
-          paddingBottom: 95, // Tab bar height (70) + padding
+          paddingBottom: 95,
           paddingHorizontal: 24,
           paddingTop: 60,
         }}
         pointerEvents="none"
-        accessible={false}
-        importantForAccessibility="no-hide-descendants"
       >
         <Text className="text-white text-xl font-bold mb-2" numberOfLines={2}>
           {video.name}
@@ -162,12 +170,12 @@ const ReelsVideoCardComponent: React.FC<ReelsVideoCardProps> = ({
         )}
       </LinearGradient>
 
-      {/* Right Side Actions */}
+      {/* Action Buttons */}
       <View
         style={{
           position: "absolute",
           right: 16,
-          bottom: 115, // Adjusted for tab bar + 5px upward shift
+          bottom: 115,
           gap: 20,
         }}
       >
@@ -228,12 +236,11 @@ const ReelsVideoCardComponent: React.FC<ReelsVideoCardProps> = ({
   );
 };
 
-// Memoize component to prevent unnecessary re-renders
-export const ReelsVideoCard = memo(ReelsVideoCardComponent, (prevProps, nextProps) => {
-  // Only re-render if video ID, active state, or favorite state changes
+// Strict Memoization
+export const ReelsVideoCard = memo(ReelsVideoCardComponent, (prev, next) => {
   return (
-    prevProps.video.id === nextProps.video.id &&
-    prevProps.isActive === nextProps.isActive &&
-    prevProps.video.isFavorite === nextProps.video.isFavorite
+    prev.video.id === next.video.id &&
+    prev.isActive === next.isActive &&
+    prev.video.isFavorite === next.video.isFavorite
   );
 });
