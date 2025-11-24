@@ -2,6 +2,37 @@
 
 A modern, high-performance React Native video editor that lets you create and share perfect 5-second video clips.
 
+## 📱 App Preview
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center">
+        <a href="https://cdn.discordapp.com/attachments/430340733644570638/1442516627324141731/Simulator_Screen_Recording_-_iPhone_17_-_2025-11-24_at_17.05.17.mov?ex=6925b7cc&is=6924664c&hm=a4b46583286c92722dba4003c8fecb5b3a589438f4455e4ae40a5b45d8ab7c3a&">
+          <img src="https://cdn.discordapp.com/attachments/430340733644570638/1442516627324141731/Simulator_Screen_Recording_-_iPhone_17_-_2025-11-24_at_17.05.17.mov?ex=6925b7cc&is=6924664c&hm=a4b46583286c92722dba4003c8fecb5b3a589438f4455e4ae40a5b45d8ab7c3a&" width="250" alt="Video Cropping Demo"/>
+        </a>
+        <br/>
+        <em>Video Cropping</em>
+      </td>
+      <td align="center">
+        <a href="https://cdn.discordapp.com/attachments/430340733644570638/1442516930820050964/Simulator_Screen_Recording_-_iPhone_17_-_2025-11-24_at_16.57.15.mov?ex=6925b814&is=69246694&hm=05dad9c711c5fec926665bb5a1f50a13e644bc33320dcb4b1f69a7822a6f0bf1&">
+          <img src="https://cdn.discordapp.com/attachments/430340733644570638/1442516930820050964/Simulator_Screen_Recording_-_iPhone_17_-_2025-11-24_at_16.57.15.mov?ex=6925b814&is=69246694&hm=05dad9c711c5fec926665bb5a1f50a13e644bc33320dcb4b1f69a7822a6f0bf1&" width="250" alt="Favorite Feature Demo"/>
+        </a>
+        <br/>
+        <em>Favorites</em>
+      </td>
+      <td align="center">
+        <a href="https://cdn.discordapp.com/attachments/430340733644570638/1442517093118382150/Simulator_Screen_Recording_-_iPhone_17_-_2025-11-24_at_16.56.19.mov?ex=6925b83b&is=692466bb&hm=f64709e273bb186ac2aa6dac1c3eb1c2211fa592dacbfddb3124a4f1f869e990&">
+          <img src="https://cdn.discordapp.com/attachments/430340733644570638/1442517093118382150/Simulator_Screen_Recording_-_iPhone_17_-_2025-11-24_at_16.56.19.mov?ex=6925b83b&is=692466bb&hm=f64709e273bb186ac2aa6dac1c3eb1c2211fa592dacbfddb3124a4f1f869e990&" width="250" alt="Share & Download Demo"/>
+        </a>
+        <br/>
+        <em>Share, Download & Edit Metadata</em>
+      </td>
+    </tr>
+  </table>
+  <p><em>Click on any demo to view the video</em></p>
+</div>
+
 ## Overview
 
 **5econds** is a mobile video diary application built with React Native and Expo. Users can import videos from their gallery or record new ones, precisely crop them to exactly 5 seconds, add metadata, and save them in an optimized format. The app features a beautiful TikTok-style reels interface for viewing your video collection.
@@ -290,14 +321,6 @@ cd android
 cd ..
 npx expo prebuild --platform android --clean
 ```
-
-### Issue: Video playback stuttering
-
-**Solution**: Ensure you're testing on a physical device or enable hardware acceleration in emulator settings.
-
-### Issue: Memory warnings on iOS
-
-**Solution**: This is expected with video processing. The app has aggressive memory management built-in. Close other apps if warnings persist.
 
 ## Contributing
 
